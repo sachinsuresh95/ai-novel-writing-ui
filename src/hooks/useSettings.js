@@ -32,6 +32,7 @@ export const useSettings = () => {
   const handleSaveSettings = async (endpoint, key, tokens, preset) => {
     setSettingsError("");
     console.log("saving api settings...");
+    const chatCompletionsEndpoint = `${endpoint}/chat/completions`;
     try {
       const headers = { "Content-Type": "application/json" };
       if (key) headers["Authorization"] = `Bearer ${key}`;
@@ -39,7 +40,7 @@ export const useSettings = () => {
         messages: [{ role: "user", content: "Test" }],
         max_tokens: 1,
       };
-      const response = await fetch(endpoint, {
+      const response = await fetch(chatCompletionsEndpoint, {
         method: "POST",
         headers,
         body: JSON.stringify(testBody),
@@ -47,11 +48,11 @@ export const useSettings = () => {
       if (!response.ok) {
         throw new Error(`API returned status ${response.status}`);
       }
-      setLlmEndpoint(endpoint);
+      setLlmEndpoint(chatCompletionsEndpoint);
       setApiKey(key);
       setMaxTokens(tokens);
       setGenerationPreset(preset);
-      localStorage.setItem("llmEndpoint", endpoint);
+      localStorage.setItem("llmEndpoint", chatCompletionsEndpoint);
       localStorage.setItem("apiKey", key);
       localStorage.setItem("maxTokens", tokens);
       localStorage.setItem("generationPreset", preset);

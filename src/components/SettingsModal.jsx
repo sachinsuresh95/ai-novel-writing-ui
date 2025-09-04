@@ -75,12 +75,11 @@ const SettingsModal = ({
               id="endpoint"
               value={endpoint}
               onChange={(e) => setEndpoint(e.target.value)}
-              placeholder="https://api.example.com/v1/chat/completions"
+              placeholder="https://api.example.com/v1"
               className="w-full bg-gray-900 text-white border border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
             <p className="text-xs text-gray-400 mt-1">
-              Must be an OpenAI API compatible chat completion endpoint.
-              (--url--/v1/chat/completions)
+              Must be an OpenAI API compatible endpoint.
             </p>
           </div>
           <div>
