@@ -1,8 +1,7 @@
 # 🤖 AI Novel Writing UI
 
-**AI Novel Writer** is a powerful, open-source application designed for creative writers who want to harness the power of Large Language Models (LLMs) in their novel-writing process. Inspired by tools like Sudowrite, this application provides a seamless interface to connect your own OpenAI-compatible LLM endpoint, giving you full control over your AI writing assistant.
+**AI Novel Writer** is a powerful, open-source application designed for creative writers who want to harness the power of Large Language Models (LLMs) in their novel-writing process. Inspired by tools like Sudowrite, this application provides a seamless interface to connect your own OpenAI-compatible LLM endpoint, giving you full control over your AI writing assistant. Everything is saved in the browser, no servers.
 
-![image](https://github.com/user-attachments/assets/e43b3c73-f460-465c-a1e0-512d4f2593a3)
 
 ## ✨ Features
 
