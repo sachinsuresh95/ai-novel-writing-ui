@@ -2,26 +2,37 @@ import { useState, useEffect } from "react";
 import { GENERATION_PRESETS } from "../constants";
 
 export const useSettings = () => {
+  const [baseUrl, setBaseUrl] = useState("");
   const [llmEndpoint, setLlmEndpoint] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [maxTokens, setMaxTokens] = useState(300);
-  const [generationPreset, setGenerationPreset] = useState("balanced");
+  const [generationSettings, setGenerationSettings] = useState(
+    GENERATION_PRESETS.balanced
+  );
+  const [model, setModel] = useState("");
+  const [modelContextWindow, setModelContextWindow] = useState(8192);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const [credsValidated, setCredsValidated] = useState(false);
 
   useEffect(() => {
-    const savedEndpoint = localStorage.getItem("llmEndpoint");
+    const savedBaseUrl = localStorage.getItem("baseUrl");
     const savedApiKey = localStorage.getItem("apiKey");
+    const savedModel = localStorage.getItem("model");
 
-    if (savedEndpoint) {
-      setLlmEndpoint(savedEndpoint);
+    if (savedBaseUrl) {
+      setBaseUrl(savedBaseUrl);
+      setLlmEndpoint(savedBaseUrl + "/chat/completions");
       setApiKey(savedApiKey || "");
+      if (savedModel) setModel(savedModel);
       const savedMaxTokens = localStorage.getItem("maxTokens");
       if (savedMaxTokens) setMaxTokens(parseInt(savedMaxTokens, 10));
-      const savedPreset = localStorage.getItem("generationPreset");
-      if (savedPreset && GENERATION_PRESETS[savedPreset]) {
-        setGenerationPreset(savedPreset);
+      const savedContextWindow = localStorage.getItem("modelContextWindow");
+      if (savedContextWindow)
+        setModelContextWindow(parseInt(savedContextWindow, 10));
+      const savedSettings = localStorage.getItem("generationSettings");
+      if (savedSettings) {
+        setGenerationSettings(JSON.parse(savedSettings));
       }
       setCredsValidated(true);
     } else {
@@ -29,18 +40,26 @@ export const useSettings = () => {
     }
   }, []);
 
-  const handleSaveSettings = async (endpoint, key, tokens, preset) => {
+  const handleSaveSettings = async (
+    baseEndpoint,
+    key,
+    tokens,
+    settings,
+    model,
+    contextWindow
+  ) => {
     setSettingsError("");
+    const completionsEndpoint = `${baseEndpoint}/chat/completions`;
     console.log("saving api settings...");
-    const chatCompletionsEndpoint = `${endpoint}/chat/completions`;
     try {
       const headers = { "Content-Type": "application/json" };
       if (key) headers["Authorization"] = `Bearer ${key}`;
       const testBody = {
+        model: model,
         messages: [{ role: "user", content: "Test" }],
         max_tokens: 1,
       };
-      const response = await fetch(chatCompletionsEndpoint, {
+      const response = await fetch(completionsEndpoint, {
         method: "POST",
         headers,
         body: JSON.stringify(testBody),
@@ -48,14 +67,20 @@ export const useSettings = () => {
       if (!response.ok) {
         throw new Error(`API returned status ${response.status}`);
       }
-      setLlmEndpoint(chatCompletionsEndpoint);
+      setBaseUrl(baseEndpoint);
+      setLlmEndpoint(completionsEndpoint);
       setApiKey(key);
       setMaxTokens(tokens);
-      setGenerationPreset(preset);
-      localStorage.setItem("llmEndpoint", chatCompletionsEndpoint);
+      setGenerationSettings(settings);
+      setModel(model);
+      setModelContextWindow(contextWindow);
+      localStorage.setItem("baseUrl", baseEndpoint);
+      localStorage.setItem("llmEndpoint", completionsEndpoint);
       localStorage.setItem("apiKey", key);
       localStorage.setItem("maxTokens", tokens);
-      localStorage.setItem("generationPreset", preset);
+      localStorage.setItem("generationSettings", JSON.stringify(settings));
+      localStorage.setItem("model", model);
+      localStorage.setItem("modelContextWindow", contextWindow);
       setIsSettingsOpen(false);
       setCredsValidated(true);
     } catch (err) {
@@ -67,10 +92,13 @@ export const useSettings = () => {
   };
 
   return {
+    baseUrl,
     llmEndpoint,
     apiKey,
     maxTokens,
-    generationPreset,
+    generationSettings,
+    model,
+    modelContextWindow, // Export the new state
     isSettingsOpen,
     setIsSettingsOpen,
     settingsError,

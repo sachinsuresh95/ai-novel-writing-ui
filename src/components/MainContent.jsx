@@ -1,4 +1,10 @@
-import React, { useState, useRef, useCallback, useEffect } from "react";
+import React, {
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  useMemo,
+} from "react";
 import AIToolbar from "./AIToolbar";
 import Editor from "./Editor";
 import GenerationPanel from "./GenerationPanel";
@@ -10,6 +16,13 @@ import {
 } from "../services/AIGeneration";
 import { buildPrompt } from "../prompt-builder";
 import { RefreshCw } from "lucide-react";
+import { usePromptContextManager } from "../hooks/usePromptContextManager";
+import {
+  extractBibleContext,
+  extractSelectiveBibleContext,
+  extractStoryContext,
+} from "../context-extractor";
+import { PromptContextHelpers } from "../hooks/usePromptContextManager";
 
 const MainContent = ({
   documents,
@@ -28,15 +41,17 @@ const MainContent = ({
   setError,
   llmEndpoint,
   apiKey,
-  generationPreset,
+  model,
+  generationSettings,
   maxTokens,
+  modelContextWindow,
   setIsSettingsOpen,
   onRecreateMemory,
 }) => {
   const abortControllerRef = useRef(null);
   const {
     editorRef,
-    selectionRef,
+    selection,
     selectedText,
     handleSelectionChange,
     handleInsertText,
@@ -60,7 +75,70 @@ const MainContent = ({
   const [historyCards, setHistoryCards] = useState([]);
   const aiToolsRef = useRef(null);
 
-  // Effect to handle clicks outside of AI tools popover
+  // --- Context Management & Token Budgeting ---
+  const { preceding, following, selected } = useMemo(
+    () => extractStoryContext(activeItem, selection),
+    [activeItem, selection]
+  );
+
+  const { bibleContext, bibleEntriesForLog } = useMemo(() => {
+    const isOutline = activeSidebarTab === "outline";
+    const doc = isOutline
+      ? documents?.find((d) => d.id === activeDocumentId)
+      : null;
+    const storyTextForAnalysis = `${preceding?.slice(
+      -2000
+    )} ${selected} ${following?.slice(0, 1000)}`;
+
+    const result = isOutline
+      ? extractSelectiveBibleContext(
+          bibleEntries,
+          storyTextForAnalysis,
+          doc?.title || ""
+        )
+      : extractBibleContext(bibleEntries, activeBibleEntryId);
+
+    return {
+      bibleContext: result.contextString || "",
+      bibleEntriesForLog: result.includedEntries || [],
+    };
+  }, [
+    activeSidebarTab,
+    documents,
+    activeDocumentId,
+    preceding,
+    selected,
+    following,
+    bibleEntries,
+    activeBibleEntryId,
+  ]);
+
+  const variableTokenBudget = useMemo(() => {
+    const { textToTokens } = PromptContextHelpers;
+    const contextWindowSize = modelContextWindow || 8192;
+    const generationTokens = Number(maxTokens) || 1024;
+    const promptTokenBudget = contextWindowSize - generationTokens;
+    const systemPrompt = `You are a world-class writing partner...`; // This can be a constant
+    let fixedTokenCount = 0;
+    fixedTokenCount += textToTokens(systemPrompt).length;
+    fixedTokenCount += textToTokens(customInstruction).length;
+    fixedTokenCount += textToTokens(selected).length;
+    fixedTokenCount += 250; // Overhead
+    return Math.max(0, promptTokenBudget - fixedTokenCount);
+  }, [modelContextWindow, maxTokens, customInstruction, selected]);
+
+  const {
+    truncatedBibleContext,
+    truncatedPrecedingText,
+    truncatedFollowingText,
+  } = usePromptContextManager({
+    bibleContext,
+    precedingText: preceding,
+    followingText: following,
+    promptTokenBudget: variableTokenBudget,
+  });
+  // --- End of Context Management ---
+
   useEffect(() => {
     function handleClickOutside(event) {
       if (aiToolsRef.current && !aiToolsRef.current.contains(event.target)) {
@@ -78,7 +156,6 @@ const MainContent = ({
       setActiveAITool(null);
     } else {
       setActiveAITool(tool);
-      // setCustomInstruction("");
     }
   };
 
@@ -88,7 +165,7 @@ const MainContent = ({
 
   const handleContinueGeneration = useCallback(
     async (cardToContinue) => {
-      if (!llmEndpoint) {
+      if (!llmEndpoint || !model) {
         setError("LLM Endpoint is not configured.");
         setIsSettingsOpen(true);
         return;
@@ -97,7 +174,6 @@ const MainContent = ({
       setGenerationMessage("Continuing generation...");
       setIsGenerating(true);
 
-      // Store the existing text before continuing
       const existingText = cardToContinue.text;
 
       try {
@@ -116,6 +192,8 @@ const MainContent = ({
           cardToContinue,
           apiKey,
           llmEndpoint,
+          model,
+          generationSettings,
           onData,
           abortControllerRef.current.signal
         );
@@ -128,6 +206,7 @@ const MainContent = ({
     [
       llmEndpoint,
       apiKey,
+      model,
       setIsSettingsOpen,
       setError,
       setGenerationMessage,
@@ -145,7 +224,7 @@ const MainContent = ({
 
   const handleRegenerate = useCallback(
     async (cardToRegenerate) => {
-      if (!llmEndpoint) {
+      if (!llmEndpoint || !model) {
         setError("LLM Endpoint is not configured.");
         setIsSettingsOpen(true);
         return;
@@ -154,7 +233,6 @@ const MainContent = ({
       setGenerationMessage("Rerunning generation...");
       setIsGenerating(true);
 
-      // Clear the card's text before starting regeneration
       setHistoryCards((cards) =>
         cards.map((card) =>
           card.id === cardToRegenerate.id ? { ...card, text: "" } : card
@@ -177,6 +255,8 @@ const MainContent = ({
           cardToRegenerate,
           apiKey,
           llmEndpoint,
+          model,
+          generationSettings,
           onData,
           abortControllerRef.current.signal
         );
@@ -189,6 +269,7 @@ const MainContent = ({
     [
       llmEndpoint,
       apiKey,
+      model,
       setIsSettingsOpen,
       setError,
       setGenerationMessage,
@@ -198,7 +279,7 @@ const MainContent = ({
 
   const generateText = useCallback(
     async (mode, instruction = "") => {
-      if (!llmEndpoint) {
+      if (!llmEndpoint || !model) {
         setError("LLM Endpoint is not configured.");
         setIsSettingsOpen(true);
         return;
@@ -208,17 +289,23 @@ const MainContent = ({
       setGenerationMessage(`Running "${mode}"...`);
       setIsGenerating(true);
 
+      const bible =
+        activeSidebarTab !== "outline"
+          ? bibleEntries?.find((b) => b.id === activeBibleEntryId)
+          : null;
+
       const promptOptions = {
         mode,
         instruction,
         activeSidebarTab,
-        documents,
-        activeDocumentId,
-        bibleEntries,
-        activeBibleEntryId,
-        selectionRef,
-        generationPreset,
+        bible,
+        cardContent: "", // for 'continue'
+        truncatedBibleContext,
+        truncatedPrecedingText,
+        truncatedFollowingText,
+        selectedText: selected,
         maxTokens,
+        generationSettings,
       };
 
       const { promptForHistory, error: promptError } =
@@ -230,7 +317,18 @@ const MainContent = ({
         return;
       }
 
-      // Create card immediately with empty text
+      console.log(
+        "Bible entries included in context:",
+        bibleEntriesForLog.map((e) => e.title)
+      );
+
+      console.log({
+        truncatedBibleContext,
+        truncatedPrecedingText,
+        truncatedFollowingText,
+        selected,
+      });
+
       const newCardId = Date.now();
       setHistoryCards((prev) => [
         {
@@ -259,6 +357,8 @@ const MainContent = ({
           promptOptions,
           apiKey,
           llmEndpoint,
+          model,
+          generationSettings,
           onData,
           abortControllerRef.current.signal
         );
@@ -270,19 +370,35 @@ const MainContent = ({
     },
     [
       llmEndpoint,
+      model,
       apiKey,
-      activeDocumentId,
-      activeBibleEntryId,
       activeSidebarTab,
-      documents,
+      activeBibleEntryId,
       bibleEntries,
       maxTokens,
-      generationPreset,
-      setIsSettingsOpen,
+      generationSettings,
       setError,
-      setGenerationMessage,
+      setIsSettingsOpen,
       setIsGenerating,
+      setGenerationMessage,
+      bibleEntriesForLog, // Dependency for logging
+      truncatedBibleContext,
+      truncatedPrecedingText,
+      truncatedFollowingText,
+      selected,
     ]
+  );
+
+  const handleInsertCardText = useCallback(
+    (cardText) => {
+      const cleanText = (cardText || "")
+        .replace(/<think>[\s\S]*?<\/think>/gs, "")
+        .trim();
+      if (cleanText) {
+        handleInsertText(cleanText);
+      }
+    },
+    [handleInsertText]
   );
 
   const isGeneratingOrProtected = isGenerating || activeItem?.type === "Memory";
@@ -332,6 +448,7 @@ const MainContent = ({
           editorKey={editorKey}
           content={editorContent}
           onChange={handleManuscriptChange}
+          onClick={handleSelectionChange}
           onSelectionChange={handleSelectionChange}
           isEditorActive={isEditorActive}
           isGeneratingOrProtected={isGeneratingOrProtected}
@@ -348,7 +465,7 @@ const MainContent = ({
       <GenerationPanel
         isGenerating={isGenerating}
         historyCards={historyCards}
-        onInsert={handleInsertText}
+        onInsert={handleInsertCardText}
         onContinue={handleContinueGeneration}
         onRegenerate={handleRegenerate}
         onClose={handleCloseCard}

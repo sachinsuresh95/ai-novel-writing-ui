@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 export const useEditor = ({
   documents,
@@ -10,19 +10,25 @@ export const useEditor = ({
   activeSidebarTab,
 }) => {
   const editorRef = useRef(null);
-  const selectionRef = useRef({ start: 0, end: 0, text: "" });
+  const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [selectedText, setSelectedText] = useState("");
+
+  const activeContent =
+    (activeSidebarTab === "outline"
+      ? documents.find((d) => d.id === activeDocumentId)?.content
+      : bibleEntries.find((b) => b.id === activeBibleEntryId)?.content) ?? "";
+
+  useEffect(() => {
+    // On mount or when content loads, set cursor to the end
+    setSelection({ start: activeContent.length, end: activeContent.length });
+  }, [activeDocumentId, activeBibleEntryId]); // Reruns when the active item changes
 
   const handleSelectionChange = useCallback(() => {
     const editor = editorRef.current;
     if (!editor) return;
     const { selectionStart, selectionEnd, value } = editor;
     const currentSelectedText = value.substring(selectionStart, selectionEnd);
-    selectionRef.current = {
-      start: selectionStart,
-      end: selectionEnd,
-      text: currentSelectedText,
-    };
+    setSelection({ start: selectionStart, end: selectionEnd });
     setSelectedText(currentSelectedText);
   }, []);
 
@@ -33,7 +39,7 @@ export const useEditor = ({
       (activeSidebarTab === "outline"
         ? documents.find((d) => d.id === activeDocumentId)?.content
         : bibleEntries.find((b) => b.id === activeBibleEntryId)?.content) ?? "";
-    const { start, end } = selectionRef.current;
+    const { start, end } = selection;
     const newText =
       activeContent.substring(0, start) +
       textToInsert +
@@ -92,7 +98,7 @@ export const useEditor = ({
 
   return {
     editorRef,
-    selectionRef,
+    selection,
     selectedText,
     handleSelectionChange,
     handleInsertText,

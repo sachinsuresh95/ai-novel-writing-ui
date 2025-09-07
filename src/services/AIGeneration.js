@@ -77,10 +77,21 @@ const streamResponse = async (response, onData, signal) => {
   return fullText;
 };
 
-export const generateInitialMemory = async (docs, apiKey, llmEndpoint) => {
+export const generateInitialMemory = async (
+  docs,
+  apiKey,
+  llmEndpoint,
+  model,
+  modelContextWindow
+) => {
   const summaryPromises = docs.map(async (doc) => {
     if (doc.content.trim().length < 20) return null;
-    const { body, error } = buildMemoryUpdatePrompt(doc.title, doc.content);
+    // We can't use the hook here, but we can use the helpers.
+    const { body, error } = buildMemoryUpdatePrompt({
+      chapterTitle: doc.title,
+      chapterContent: doc.content,
+      contextWindowSize: modelContextWindow || 4096,
+    });
     if (error) throw new Error(error);
 
     const headers = { "Content-Type": "application/json" };
@@ -89,7 +100,7 @@ export const generateInitialMemory = async (docs, apiKey, llmEndpoint) => {
     const response = await fetch(llmEndpoint, {
       method: "POST",
       headers,
-      body: JSON.stringify({ ...body, stream: true }),
+      body: JSON.stringify({ ...body, stream: true, model }),
     });
 
     if (!response.ok) {
@@ -127,14 +138,17 @@ export const updateMemory = async (
   docToSummarize,
   apiKey,
   llmEndpoint,
+  model,
+  modelContextWindow,
   signal
 ) => {
   if (!llmEndpoint) return null;
 
-  const { body, error: promptError } = buildMemoryUpdatePrompt(
-    docToSummarize.title,
-    docToSummarize.content
-  );
+  const { body, error: promptError } = buildMemoryUpdatePrompt({
+    chapterTitle: docToSummarize.title,
+    chapterContent: docToSummarize.content,
+    contextWindowSize: modelContextWindow || 4096,
+  });
 
   if (promptError) {
     console.error("Memory update prompt error:", promptError);
@@ -148,7 +162,7 @@ export const updateMemory = async (
     const response = await fetch(llmEndpoint, {
       method: "POST",
       headers,
-      body: JSON.stringify({ ...body, stream: true }),
+      body: JSON.stringify({ ...body, stream: true, model }),
       signal,
     });
 
@@ -171,6 +185,8 @@ export const generateText = async (
   options,
   apiKey,
   llmEndpoint,
+  model,
+  generationSettings,
   onData,
   signal
 ) => {
@@ -185,10 +201,7 @@ export const generateText = async (
     throw new Error(promptError);
   }
 
-  console.log(
-    "Bible entries included in context:",
-    bibleEntriesForLog.map((e) => e.title)
-  );
+  // The parent component now handles logging included entries.
 
   try {
     const headers = { "Content-Type": "application/json" };
@@ -197,7 +210,12 @@ export const generateText = async (
     const response = await fetch(llmEndpoint, {
       method: "POST",
       headers,
-      body: JSON.stringify({ ...body, stream: true }),
+      body: JSON.stringify({
+        ...body,
+        ...generationSettings,
+        stream: true,
+        model,
+      }),
     });
 
     if (!response.ok) {
@@ -220,6 +238,8 @@ export const continueGeneration = async (
   cardToContinue,
   apiKey,
   llmEndpoint,
+  model,
+  generationSettings,
   onData,
   signal
 ) => {
@@ -238,10 +258,7 @@ export const continueGeneration = async (
     throw new Error(promptError);
   }
 
-  console.log(
-    "Bible entries included in context for CONTINUE:",
-    bibleEntriesForLog.map((e) => e.title)
-  );
+  // The parent component now handles logging included entries.
 
   try {
     const headers = { "Content-Type": "application/json" };
@@ -250,7 +267,12 @@ export const continueGeneration = async (
     const response = await fetch(llmEndpoint, {
       method: "POST",
       headers,
-      body: JSON.stringify({ ...body, stream: true }),
+      body: JSON.stringify({
+        ...body,
+        ...generationSettings,
+        stream: true,
+        model,
+      }),
     });
 
     if (!response.ok) {
@@ -272,6 +294,8 @@ export const regenerate = async (
   cardToRegenerate,
   apiKey,
   llmEndpoint,
+  model,
+  generationSettings,
   onData,
   signal
 ) => {
@@ -290,7 +314,12 @@ export const regenerate = async (
     const response = await fetch(llmEndpoint, {
       method: "POST",
       headers,
-      body: JSON.stringify({ ...body, stream: true }),
+      body: JSON.stringify({
+        ...body,
+        ...generationSettings,
+        stream: true,
+        model,
+      }),
     });
 
     if (!response.ok) {

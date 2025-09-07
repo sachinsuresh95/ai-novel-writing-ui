@@ -68,7 +68,7 @@ You can use a tool like [LM Studio](https://lmstudio.ai/) or [Ollama](https://ol
 1.  Download and install LM Studio.
 2.  In LM Studio, go to the **Local Server** tab.
 3.  Select a model and click **Start Server**.
-4.  Copy the server URL (e.g., `http://localhost:1234/v1/chat/completions`).
+4.  Copy the server base URL (e.g., `http://localhost:1234/v1`).
 5.  In AI Novel Writer, paste this URL into the **LLM Endpoint URL** field.
 6.  You can leave the API key field empty if your local server doesn't require one.
 

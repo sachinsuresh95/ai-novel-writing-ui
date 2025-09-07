@@ -1,6 +1,5 @@
 import { useState, useCallback } from "react";
 import * as storage from "../storage";
-import { buildMemoryUpdatePrompt } from "../prompt-builder";
 
 export const useProjectData = (activeProjectId, generateInitialMemory) => {
   const [documents, setDocuments] = useState([]);

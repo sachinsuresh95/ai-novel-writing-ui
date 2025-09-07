@@ -17,10 +17,13 @@ import MainContent from "./components/MainContent";
 
 const App = () => {
   const {
+    baseUrl,
     llmEndpoint,
     apiKey,
+    model,
+    modelContextWindow,
     maxTokens,
-    generationPreset,
+    generationSettings,
     isSettingsOpen,
     setIsSettingsOpen,
     settingsError,
@@ -42,9 +45,15 @@ const App = () => {
 
   const generateInitialMemoryCallback = useCallback(
     (docs) => {
-      return generateInitialMemory(docs, apiKey, llmEndpoint);
+      return generateInitialMemory(
+        docs,
+        apiKey,
+        llmEndpoint,
+        model,
+        modelContextWindow
+      );
     },
-    [apiKey, llmEndpoint]
+    [apiKey, llmEndpoint, model, modelContextWindow]
   );
 
   const {
@@ -130,6 +139,8 @@ const App = () => {
         docToSummarize,
         apiKey,
         llmEndpoint,
+        model,
+        modelContextWindow,
         signal
       );
       if (summary) {
@@ -184,7 +195,7 @@ const App = () => {
         });
       }
     },
-    [apiKey, llmEndpoint, setBibleEntries]
+    [apiKey, llmEndpoint, model, modelContextWindow, setBibleEntries]
   );
 
   const handleRecreateMemory = useCallback(async () => {
@@ -194,7 +205,9 @@ const App = () => {
       const memoryContent = await generateInitialMemory(
         documents,
         apiKey,
-        llmEndpoint
+        llmEndpoint,
+        model,
+        modelContextWindow
       );
       if (memoryContent) {
         setBibleEntries((currentBibleEntries) => {
@@ -218,6 +231,8 @@ const App = () => {
     documents,
     apiKey,
     llmEndpoint,
+    model,
+    modelContextWindow,
     setBibleEntries,
     setError,
     setIsGenerating,
@@ -226,7 +241,13 @@ const App = () => {
 
   useDebouncedEffect(
     () => {
-      if (isInitializing || !activeProjectId || !prevDocuments || !llmEndpoint)
+      if (
+        isInitializing ||
+        !activeProjectId ||
+        !prevDocuments ||
+        !llmEndpoint ||
+        !model
+      )
         return;
 
       const changedDocs = documents.filter((doc) => {
@@ -237,8 +258,6 @@ const App = () => {
           doc.content !== prevDoc.content
         );
       });
-
-      console.log({ changedDocs });
 
       if (changedDocs.length > 0) {
         if (memoryUpdateAbortController.current) {
@@ -364,10 +383,12 @@ const App = () => {
           setIsSettingsOpen(false);
         }}
         onSave={handleSaveSettings}
-        initialEndpoint={llmEndpoint}
+        initialEndpoint={baseUrl}
         initialApiKey={apiKey}
         initialMaxTokens={maxTokens}
-        initialGenerationPreset={generationPreset}
+        initialGenerationPreset={generationSettings.preset}
+        initialGenerationSettings={generationSettings}
+        initialContextWindow={modelContextWindow}
         errorMessage={settingsError}
       />
       <NewBibleEntryModal
@@ -419,8 +440,10 @@ const App = () => {
           setError={setError}
           llmEndpoint={llmEndpoint}
           apiKey={apiKey}
-          generationPreset={generationPreset}
+          model={model}
+          generationSettings={generationSettings}
           maxTokens={maxTokens}
+          modelContextWindow={modelContextWindow}
           setIsSettingsOpen={setIsSettingsOpen}
           memoryEntry={memoryEntry}
           onRecreateMemory={handleRecreateMemory}
