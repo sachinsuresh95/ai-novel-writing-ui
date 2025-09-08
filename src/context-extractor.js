@@ -46,7 +46,7 @@ export function extractSelectiveBibleContext(
     // For Memory, only include summaries of chapters *before* the current one.
     const chapterTag = `<${chapterTitle}>`;
     const contentBeforeChapter = memory.content.split(chapterTag)[0];
-    analysisQueue.push(contentBeforeChapter);
+    // analysisQueue.push(contentBeforeChapter);
     if (!relevantEntries.has(memory.id)) {
       // We add a modified version of the Memory entry
       relevantEntries.set(memory.id, {

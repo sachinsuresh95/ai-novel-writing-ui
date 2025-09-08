@@ -1,5 +1,35 @@
 import { PromptContextHelpers } from "./hooks/usePromptContextManager";
 
+function getBibleSubPrompt(bibleType) {
+  const basePrompt =
+    "You are crafting a Story Bible entry. Keep the description concise and focused on the most critical information. ";
+
+  switch (bibleType) {
+    case "Character":
+      return (
+        basePrompt +
+        `Flesh out the character's core personality, primary motivation, physical appearance, and key relationships in a few short sentences.`
+      );
+    case "Plot Summary":
+      return `You are writing a plot summary. Outline the main arcs, key turning points, and final resolution in a brief, easy-to-read format. Do not exceed a few paragraphs.`;
+    case "Setting":
+      return (
+        basePrompt +
+        `Describe the aumbience and key features of the location. Focus on sensory details that are most relevant to the story.`
+      );
+    case "Lore":
+      return (
+        basePrompt +
+        `Detail a core aspect of your world's history, mythology, or magic system. Be specific and brief.`
+      );
+    case "Chapter Outline":
+      return `You are creating a chapter outline. List the key scenes and plot points in a simple, hierarchical format.`;
+    case "Instructions":
+      return ""; // No AI prompt for this type
+    default:
+      return `You are working on a Story Bible entry. Write content that is concise and consistent with the entry's purpose.`;
+  }
+}
 // Pass truncated context directly from the new hook
 function buildAdvancedPrompt({
   mode,
@@ -111,11 +141,18 @@ function buildAdvancedPrompt({
       }
     }
 
+    // --- BIBLE PROMPTS ---
+    if (!bible) return { error: "No active bible entry." };
+    if (bible.type === "Instructions")
+      return { error: "AI tools are disabled for instructions." };
+
+    const subPrompt = getBibleSubPrompt(bible.type);
+
     switch (mode) {
       case "write":
         messages.push({
           role: "user",
-          content: `TASK: You are writing in a Story Bible entry titled "${bible.title}" (Type: ${bible.type}). Continue writing exactly from where the text ends. Do not repeat any of the provided text. Match the existing style. ${userInstruction}\n\nHere is the text to continue from:\n---\n...${effectivePrecedingText}`,
+          content: `TASK: ${subPrompt} Continue writing exactly from where the text ends. Do not repeat any of the provided text. Match the existing style. ${userInstruction}\n\nHere is the text to continue from:\n---\n...${effectivePrecedingText}`,
         });
         break;
       case "rewrite":
@@ -126,17 +163,15 @@ function buildAdvancedPrompt({
           : "the entire entry";
         messages.push({
           role: "user",
-          content: `TASK: Rewrite ${rewriteTarget} for the Story Bible entry titled "${bible.title}" (Type: ${bible.type}). ${userInstruction}\n\nTEXT TO REWRITE:\n---\n${textToRewrite}`,
+          content: `TASK: ${subPrompt} Rewrite ${rewriteTarget} for the Story Bible entry titled "${bible.title}". ${userInstruction}\n\nTEXT TO REWRITE:\n---\n${textToRewrite}`,
         });
         break;
       case "brainstorm":
         messages.push({
           role: "user",
-          content: `TASK: Brainstorm ideas for the Story Bible entry titled "${
+          content: `TASK: ${subPrompt} Brainstorm ideas for the Story Bible entry titled "${
             bible.title
-          }" (Type: ${
-            bible.type
-          }). Base your ideas on the current content if it exists. ${userInstruction}\n\nCURRENT CONTENT:\n---\n${
+          }". Base your ideas on the current content if it exists. ${userInstruction}\n\nCURRENT CONTENT:\n---\n${
             bible.content || "(This entry is currently empty)"
           }`,
         });
