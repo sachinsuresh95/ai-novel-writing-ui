@@ -1,6 +1,9 @@
 import { PromptContextHelpers } from "./hooks/usePromptContextManager";
 
-function getBibleSubPrompt(bibleType) {
+function getBibleSubPrompt(bibleEntry) {
+  const bibleType = bibleEntry?.type;
+  const bibleTitle = bibleEntry?.title || "";
+  if (!bibleType || !bibleTitle) return "";
   const basePrompt =
     "You are crafting a Story Bible entry. Keep the description concise and focused on the most critical information. ";
 
@@ -8,26 +11,26 @@ function getBibleSubPrompt(bibleType) {
     case "Character":
       return (
         basePrompt +
-        `Flesh out the character's core personality, primary motivation, physical appearance, and key relationships in a few short sentences.`
+        `Flesh out the character's core personality, primary motivation, physical appearance, and key relationships in a few short sentences. Character: ${bibleTitle}`
       );
     case "Plot Summary":
       return `You are writing a plot summary. Outline the main arcs, key turning points, and final resolution in a brief, easy-to-read format. Do not exceed a few paragraphs.`;
     case "Setting":
       return (
         basePrompt +
-        `Describe the aumbience and key features of the location. Focus on sensory details that are most relevant to the story.`
+        `Describe the aumbience and key features of the location ${bibleTitle}. Focus on sensory details that are most relevant to the story.`
       );
     case "Lore":
       return (
         basePrompt +
-        `Detail a core aspect of your world's history, mythology, or magic system. Be specific and brief.`
+        `Detail a core aspect of your world's history, mythology, or magic system. Be specific and brief. Lore topic: ${bibleTitle}`
       );
     case "Chapter Outline":
-      return `You are creating a chapter outline. List the key scenes and plot points in a simple, hierarchical format.`;
+      return `You are creating a chapter outline. List the key scenes and plot points in a simple, hierarchical format. Keep it concise and focused. Chapter title: ${bibleTitle}`;
     case "Instructions":
       return ""; // No AI prompt for this type
     default:
-      return `You are working on a Story Bible entry. Write content that is concise and consistent with the entry's purpose.`;
+      return `You are working on a Story Bible entry. Write content that is concise and consistent with the entry's purpose. Entry title: ${bibleTitle} Entry type: ${bibleType}`;
   }
 }
 // Pass truncated context directly from the new hook
@@ -146,7 +149,7 @@ function buildAdvancedPrompt({
     if (bible.type === "Instructions")
       return { error: "AI tools are disabled for instructions." };
 
-    const subPrompt = getBibleSubPrompt(bible.type);
+    const subPrompt = getBibleSubPrompt(bible);
 
     switch (mode) {
       case "write":
