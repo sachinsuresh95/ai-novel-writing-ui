@@ -50,7 +50,6 @@ export const useSettings = () => {
   ) => {
     setSettingsError("");
     const completionsEndpoint = `${baseEndpoint}/chat/completions`;
-    console.log("saving api settings...");
     try {
       const headers = { "Content-Type": "application/json" };
       if (key) headers["Authorization"] = `Bearer ${key}`;

@@ -76,11 +76,6 @@ const Sidebar = ({
             isActive={activeTab === "bible"}
             onClick={() => setActiveTab("bible")}
           />
-          <TabButton
-            title="Memory"
-            isActive={activeTab === "memory"}
-            onClick={() => setActiveTab("memory")}
-          />
         </div>
         <div className="flex justify-between items-center my-4">
           <h2 className="font-bold text-white">{title}</h2>
@@ -108,25 +103,36 @@ const Sidebar = ({
               />
             ))
           : activeTab === "bible"
-          ? BIBLE_ENTRY_TYPES.map(
-              (type) =>
-                groupedBibleItems[type] &&
-                groupedBibleItems[type].length > 0 && (
-                  <div key={type}>
-                    <h3 className="text-xs font-bold uppercase text-gray-500 mt-4 mb-2 px-2">
-                      {type}
-                    </h3>
-                    {groupedBibleItems[type].map((item) => (
-                      <SidebarListItem
-                        key={item.id}
-                        item={item}
-                        {...renderProps}
-                        isActive={item.id === activeItemId}
-                      />
-                    ))}
-                  </div>
-                )
-            )
+          ? [
+              <SidebarListItem
+                key="memory"
+                item={{ id: "memory", title: "Memory" }}
+                {...renderProps}
+                onSelect={() => setActiveTab("memory")}
+                onStartRename={undefined}
+                onDelete={undefined}
+                isActive={activeTab === "memory"}
+              />,
+              ...BIBLE_ENTRY_TYPES.map(
+                (type) =>
+                  groupedBibleItems[type] &&
+                  groupedBibleItems[type].length > 0 && (
+                    <div key={type}>
+                      <h3 className="text-xs font-bold uppercase text-gray-500 mt-4 mb-2 px-2">
+                        {type}
+                      </h3>
+                      {groupedBibleItems[type].map((item) => (
+                        <SidebarListItem
+                          key={item.id}
+                          item={item}
+                          {...renderProps}
+                          isActive={item.id === activeItemId}
+                        />
+                      ))}
+                    </div>
+                  )
+              ),
+            ]
           : null}
         {items.length === 0 && activeTab !== "memory" && (
           <p className="text-center text-xs text-gray-500 mt-4">

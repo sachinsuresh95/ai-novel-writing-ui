@@ -1,0 +1,21 @@
+@media (max-width: 899px) {
+  body > #root {
+    display: none;
+  }
+
+  .unsupported-message {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    text-align: center;
+    font-size: 1.2rem;
+    color: #333;
+  }
+}
+
+@media (min-width: 900px) {
+  .unsupported-message {
+    display: none;
+  }
+}

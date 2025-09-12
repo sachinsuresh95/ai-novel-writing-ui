@@ -41,3 +41,5 @@ export const GENERATION_PRESETS = {
     top_k: 100,
   },
 };
+
+export const EMBEDDING_TYPES = new Set(["Character", "Lore", "Setting"]);

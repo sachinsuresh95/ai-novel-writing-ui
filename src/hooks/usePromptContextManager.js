@@ -93,8 +93,6 @@ export const usePromptContextManager = ({
       "start" // Keep the text immediately following the cursor
     );
 
-    console.log("in context manager: ", { precedingText, followingText });
-
     // 5. Decode the truncated token arrays back to strings
     return {
       truncatedBibleContext: tokensToText(truncatedBibleTokens),

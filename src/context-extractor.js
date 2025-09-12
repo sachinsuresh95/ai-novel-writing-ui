@@ -1,20 +1,54 @@
+import findSimilarEntries from "./services/similaritySearch";
+import { EMBEDDING_TYPES } from "./constants";
+export function extractCustomInstructions(bibleEntries) {
+  const instructions = bibleEntries.filter(
+    (e) => e.type === "Instructions" && e.content?.trim()
+  );
+  if (!instructions.length) return "";
+  return instructions.map((i) => i.content).join("\n\n---\n\n");
+}
+
 export function extractBibleContext(bibleEntries, excludeId = null) {
-  // Group entries by type, exclude current
+  // Group entries by type, exclude current and Instructions (handled separately)
   const grouped = {};
   const included = [];
   for (const entry of bibleEntries) {
-    if (entry.id === excludeId || !entry.content?.trim()) continue;
+    if (
+      entry.id === excludeId ||
+      !entry.content?.trim() ||
+      entry.type === "Instructions"
+    )
+      continue;
     if (!grouped[entry.type]) grouped[entry.type] = [];
     grouped[entry.type].push(entry);
     included.push(entry);
   }
-  let out = "";
-  for (const type in grouped) {
-    out += `\n${type}:\n`;
-    for (const entry of grouped[type]) {
-      out += `- ${entry.title}: ${entry.content}\n`;
+
+  let out = "[STORY_BIBLE]\n";
+  if (Object.keys(grouped).length === 0) {
+    out += "(No relevant bible context)\n";
+  } else {
+    // Prioritize certain types
+    const priorityOrder = ["Memory", "Chapter Outline"];
+    const otherTypes = Object.keys(grouped).filter(
+      (t) => !priorityOrder.includes(t)
+    );
+    const orderedTypes = [
+      ...priorityOrder.filter((t) => grouped[t]),
+      ...otherTypes,
+    ];
+
+    for (const type of orderedTypes) {
+      if (!grouped[type]) continue;
+      out += `<${type}>\n`;
+      for (const entry of grouped[type]) {
+        out += `- ${entry.title}: ${entry.content}\n`;
+      }
+      out += `</${type}>\n`;
     }
   }
+  out += "[/STORY_BIBLE]";
+
   return { contextString: out.trim(), includedEntries: included };
 }
 
@@ -32,55 +66,45 @@ export function extractStoryContext(doc, selection) {
   };
 }
 
-export function extractSelectiveBibleContext(
+export async function extractSelectiveBibleContext(
   bibleEntries,
   storyContext,
-  chapterTitle
+  chapterTitle,
+  userInstruction = ""
 ) {
   const relevantEntries = new Map();
   const analysisQueue = [storyContext];
 
-  // 1. Always include Memory and Instructions for context
+  // 1. Extract Memory (truncated) and Chapter Outline
   const memory = bibleEntries.find((e) => e.type === "Memory");
+  let memoryContent = "";
   if (memory?.content) {
-    // For Memory, only include summaries of chapters *before* the current one.
     const chapterTag = `<${chapterTitle}>`;
-    const contentBeforeChapter = memory.content.split(chapterTag)[0];
-    // analysisQueue.push(contentBeforeChapter);
-    if (!relevantEntries.has(memory.id)) {
-      // We add a modified version of the Memory entry
-      relevantEntries.set(memory.id, {
-        ...memory,
-        content: contentBeforeChapter,
-      });
-    }
-  }
-  const instructions = bibleEntries.find((e) => e.type === "Instructions");
-  if (instructions?.content) {
-    analysisQueue.push(instructions.content);
-    if (!relevantEntries.has(instructions.id)) {
-      relevantEntries.set(instructions.id, instructions);
-    }
+    memoryContent = memory.content.split(chapterTag)[0];
+    relevantEntries.set(memory.id, { ...memory, content: memoryContent });
   }
 
-  // 2. Add current chapter's outline to the queue if it exists
+  // 2. Add current chapter's outline
   const chapterOutline = bibleEntries.find(
     (e) => e.type === "Chapter Outline" && e.title === chapterTitle
   );
   if (chapterOutline?.content) {
     analysisQueue.push(chapterOutline.content);
-    if (!relevantEntries.has(chapterOutline.id)) {
-      relevantEntries.set(chapterOutline.id, chapterOutline);
-    }
+    relevantEntries.set(chapterOutline.id, chapterOutline);
   }
 
-  // 3. Process the queue to find all relevant entries by reference
+  if (userInstruction) {
+    analysisQueue.push(userInstruction);
+  }
+
+  // 3. Process queue for keyword matches (exclude Instructions)
   let currentContext;
   while ((currentContext = analysisQueue.shift())) {
     for (const entry of bibleEntries) {
       if (
         entry.content &&
         !relevantEntries.has(entry.id) &&
+        entry.type !== "Instructions" &&
         currentContext.includes(entry.title)
       ) {
         relevantEntries.set(entry.id, entry);
@@ -89,40 +113,78 @@ export function extractSelectiveBibleContext(
     }
   }
 
-  // 4. Group and format the entries
-  const grouped = {};
-  for (const entry of relevantEntries.values()) {
-    // Don't add the Memory again if it was already added
-    if (entry.type === "Memory" && grouped["Memory"]) continue;
-    if (!grouped[entry.type]) grouped[entry.type] = [];
-    grouped[entry.type].push(entry);
-  }
+  // 4. Semantic similarity (exclude Instructions)
+  const similarEntries = await findSimilarEntries(
+    `${chapterOutline?.content ?? ""} ${storyContext} ${userInstruction}`,
+    5
+  );
 
-  let out = "";
-  // Ensure Memory and Instructions are first if they exist
-  const typeOrder = ["Memory", "Instructions"];
-  for (const type of typeOrder) {
-    if (grouped[type]) {
-      out += `
-${type}:
-`;
-      for (const entry of grouped[type]) {
-        out += `${entry.content}\n`; // For these, we just dump the content
+  for (const result of similarEntries) {
+    if (!relevantEntries.has(result.entryId)) {
+      const entry = bibleEntries.find((e) => e.id === result.entryId);
+      if (
+        entry &&
+        entry.type !== "Instructions" &&
+        EMBEDDING_TYPES.has(entry.type)
+      ) {
+        relevantEntries.set(result.entryId, entry);
+        console.log(`Added similar entry of target type: ${entry.type}`);
+      } else if (entry && entry.type !== "Instructions") {
+        console.log(
+          `Skipping similar entry of non-target type: ${
+            entry?.type || "unknown"
+          }`
+        );
       }
     }
   }
 
-  for (const type in grouped) {
-    if (typeOrder.includes(type)) continue;
-    out += `
-${type}:
-`;
-    for (const entry of grouped[type]) {
-      out += `- ${entry.title}: ${entry.content}\n`;
+  // 5. Group for formatting (exclude Instructions)
+  const grouped = {};
+  for (const entry of relevantEntries.values()) {
+    if (entry.type === "Instructions") continue;
+    if (entry.type === "Memory") continue;
+    if (!grouped[entry.type]) grouped[entry.type] = [];
+    grouped[entry.type].push(entry);
+  }
+
+  let out = "[STORY_BIBLE]\n";
+  if (Object.keys(grouped).length === 0 && !memoryContent) {
+    out += "(No relevant bible context)\n";
+  } else {
+    // Memory first
+    if (memoryContent) {
+      out += "<Memory>\n" + memoryContent + "\n</Memory>\n";
+    }
+
+    // Other types in priority order
+    const priorityOrder = ["Chapter Outline"];
+    const otherTypes = Object.keys(grouped).filter(
+      (t) => !priorityOrder.includes(t)
+    );
+    const orderedTypes = [
+      ...priorityOrder.filter((t) => grouped[t]),
+      ...otherTypes,
+    ];
+
+    for (const type of orderedTypes) {
+      if (!grouped[type]) continue;
+      out += `<${type}>\n`;
+      for (const entry of grouped[type]) {
+        out += `- ${entry.title}: ${entry.content}\n`;
+      }
+      out += `</${type}>\n`;
     }
   }
+  out += "[/STORY_BIBLE]";
+
+  const customInstructions = extractCustomInstructions(bibleEntries);
+
   return {
     contextString: out.trim(),
-    includedEntries: Array.from(relevantEntries.values()),
+    customInstructions,
+    includedEntries: Array.from(relevantEntries.values()).filter(
+      (e) => e.type !== "Instructions"
+    ),
   };
 }

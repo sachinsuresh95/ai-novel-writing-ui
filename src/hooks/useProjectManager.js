@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import * as storage from "../storage";
+import storage from "../storage";
 
 export const useProjectManager = () => {
   const [projects, setProjects] = useState([]);
@@ -45,7 +45,7 @@ export const useProjectManager = () => {
                 id: Date.now() + 3,
                 title: "Memory",
                 type: "Memory",
-                content: "# Memory\n\nA summary of events as they happen.",
+                content: "",
               },
             ],
             activeDocumentId: firstDocId,
@@ -91,7 +91,7 @@ export const useProjectManager = () => {
           id: Date.now() + 3,
           title: "Memory",
           type: "Memory",
-          content: "# Memory\n\nA summary of events as they happen.",
+          content: "",
         },
       ],
       activeDocumentId: firstDocId,

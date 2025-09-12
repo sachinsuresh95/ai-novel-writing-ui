@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import SettingsModal from "./components/SettingsModal";
 import Sidebar from "./components/Sidebar";
 import NewBibleEntryModal from "./components/NewBibleEntryModal";
-import * as storage from "./storage";
+import storage from "./storage";
 import usePrevious from "./hooks/usePrevious";
 import useDebouncedEffect from "./hooks/useDebouncedEffect";
 import { useSettings } from "./hooks/useSettings";
@@ -62,7 +62,6 @@ const App = () => {
     activeDocumentId,
     setActiveDocumentId,
     bibleEntries,
-    setBibleEntries,
     activeBibleEntryId,
     setActiveBibleEntryId,
     isInitializing,
@@ -70,6 +69,9 @@ const App = () => {
     error,
     setError,
     loadProjectData,
+    addBibleEntry,
+    updateBibleEntry,
+    deleteBibleEntry,
   } = useProjectData(activeProjectId, generateInitialMemoryCallback);
 
   // UI state
@@ -144,58 +146,52 @@ const App = () => {
         signal
       );
       if (summary) {
-        setBibleEntries((currentBibleEntries) => {
-          const memoryEntry = currentBibleEntries.find(
-            (e) => e.type === "Memory"
-          );
-          if (!memoryEntry) return currentBibleEntries;
+        const memoryEntry = bibleEntries.find((e) => e.type === "Memory");
+        if (!memoryEntry) return;
 
-          let newMemoryContent = memoryEntry.content;
-          // Escape regex special characters in the title
-          const escapedTitle = docToSummarize.title.replace(
-            /[.*+?^${}()|[\]\\]/g,
-            "\\$&"
-          );
+        let newMemoryContent = memoryEntry.content;
+        const escapedTitle = docToSummarize.title.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&"
+        );
+        const chapterStartTag = `<${docToSummarize.title}>`;
+        const chapterEndTag = `</${docToSummarize.title}>`;
+        const chapterRegex = new RegExp(
+          `<${escapedTitle}>\\s*([\\s\\S]*?)\\s*<\\/${escapedTitle}>`
+        );
+        const newChapterSection = `${chapterStartTag}\n${summary}\n${chapterEndTag}`;
 
-          const chapterStartTag = `<${docToSummarize.title}>`;
-          const chapterEndTag = `</${docToSummarize.title}>`;
-
-          // Regex: match <title> ... </title>, allowing optional newlines/spaces inside
-          const chapterRegex = new RegExp(
-            `<${escapedTitle}>\\s*([\\s\\S]*?)\\s*<\\/${escapedTitle}>`
-          );
-
-          const newChapterSection = `${chapterStartTag}\n${summary}\n${chapterEndTag}`;
-
-          // Step 1: Replace the *first occurrence*
-          let replacedOnce = false;
-          newMemoryContent = newMemoryContent.replace(chapterRegex, (match) => {
-            if (!replacedOnce) {
-              replacedOnce = true;
-              return newChapterSection; // keep the first
-            }
-            return ""; // delete duplicates
-          });
-
-          // Step 2: If nothing was replaced, append instead
-          if (replacedOnce) {
-            console.log(
-              `Chapter "${docToSummarize.title}" existed and was replaced (duplicates removed if any).`
-            );
-          } else {
-            newMemoryContent += `\n\n${newChapterSection}`;
-            console.log(
-              `Chapter "${docToSummarize.title}" did not exist and was appended.`
-            );
+        let replacedOnce = false;
+        newMemoryContent = newMemoryContent.replace(chapterRegex, (match) => {
+          if (!replacedOnce) {
+            replacedOnce = true;
+            return newChapterSection;
           }
-
-          return currentBibleEntries.map((e) =>
-            e.type === "Memory" ? { ...e, content: newMemoryContent } : e
-          );
+          return "";
         });
+
+        if (replacedOnce) {
+          console.log(
+            `Chapter "${docToSummarize.title}" existed and was replaced (duplicates removed if any).`
+          );
+        } else {
+          newMemoryContent += `\n\n${newChapterSection}`;
+          console.log(
+            `Chapter "${docToSummarize.title}" did not exist and was appended.`
+          );
+        }
+
+        updateBibleEntry({ ...memoryEntry, content: newMemoryContent });
       }
     },
-    [apiKey, llmEndpoint, model, modelContextWindow, setBibleEntries]
+    [
+      apiKey,
+      llmEndpoint,
+      model,
+      modelContextWindow,
+      bibleEntries,
+      updateBibleEntry,
+    ]
   );
 
   const handleRecreateMemory = useCallback(async () => {
@@ -210,17 +206,10 @@ const App = () => {
         modelContextWindow
       );
       if (memoryContent) {
-        setBibleEntries((currentBibleEntries) => {
-          const memoryEntry = currentBibleEntries.find(
-            (e) => e.type === "Memory"
-          );
-          if (memoryEntry) {
-            return currentBibleEntries.map((e) =>
-              e.id === memoryEntry.id ? memoryContent : e
-            );
-          }
-          return currentBibleEntries; // Should not happen if initialized
-        });
+        const memoryEntry = bibleEntries.find((e) => e.type === "Memory");
+        if (memoryEntry) {
+          updateBibleEntry({ ...memoryEntry, content: memoryContent.content });
+        }
       }
     } catch (err) {
       setError(`Failed to recreate memory: ${err.message}`);
@@ -233,7 +222,8 @@ const App = () => {
     llmEndpoint,
     model,
     modelContextWindow,
-    setBibleEntries,
+    bibleEntries,
+    updateBibleEntry,
     setError,
     setIsGenerating,
     setGenerationMessage,
@@ -312,9 +302,10 @@ const App = () => {
       setError(`A ${type} entry already exists.`);
       return;
     }
-    const newId = Date.now();
-    setBibleEntries([...bibleEntries, { id: newId, title, type, content: "" }]);
-    setActiveBibleEntryId(newId);
+
+    addBibleEntry({ title, type, content: "" }).then((newEntry) => {
+      setActiveBibleEntryId(newEntry.id);
+    });
   };
   const handleDeleteBibleEntry = (id) => {
     const entryToDelete = bibleEntries.find((e) => e.id === id);
@@ -326,14 +317,14 @@ const App = () => {
       setError(`Cannot delete the protected entry: "${entryToDelete.title}".`);
       return;
     }
-    const rem = bibleEntries.filter((b) => b.id !== id);
-    setBibleEntries(rem);
+    deleteBibleEntry(id);
     if (activeBibleEntryId === id) setActiveBibleEntryId(null);
   };
   const handleRenameBibleEntry = (id, title) => {
-    setBibleEntries((entries) =>
-      entries.map((e) => (e.id === id ? { ...e, title } : e))
-    );
+    const entry = bibleEntries.find((e) => e.id === id);
+    if (entry) {
+      updateBibleEntry({ ...entry, title });
+    }
   };
 
   // --- Render Logic ---
@@ -428,13 +419,13 @@ const App = () => {
           setDocuments={setDocuments}
           activeDocumentId={activeDocumentId}
           bibleEntries={bibleEntries}
-          setBibleEntries={setBibleEntries}
           activeBibleEntryId={activeBibleEntryId}
+          updateBibleEntry={updateBibleEntry}
+          deleteBibleEntry={deleteBibleEntry}
           activeSidebarTab={activeSidebarTab}
           isInitializing={isInitializing}
           isGenerating={isGenerating}
           setIsGenerating={setIsGenerating}
-          generationMessage={generationMessage}
           setGenerationMessage={setGenerationMessage}
           error={error}
           setError={setError}

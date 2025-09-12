@@ -1,4 +1,5 @@
 import { buildPrompt, buildMemoryUpdatePrompt } from "../prompt-builder";
+import { filterGenerationSettings } from "../utils";
 
 const streamResponse = async (response, onData, signal) => {
   const reader = response.body.getReader();
@@ -116,7 +117,7 @@ export const generateInitialMemory = async (
 
   try {
     const results = await Promise.all(summaryPromises);
-    let fullMemoryContent = "# Memory\n\nA summary of events as they happen.";
+    let fullMemoryContent = "";
     for (const result of results) {
       if (result?.summary) {
         fullMemoryContent += `\n\n<${result.title}>\n${result.summary}\n</${result.title}>`;
@@ -182,7 +183,7 @@ export const updateMemory = async (
 };
 
 export const generateText = async (
-  options,
+  body,
   apiKey,
   llmEndpoint,
   model,
@@ -190,17 +191,6 @@ export const generateText = async (
   onData,
   signal
 ) => {
-  const {
-    body,
-    promptForHistory,
-    bibleEntriesForLog,
-    error: promptError,
-  } = buildPrompt(options);
-
-  if (promptError) {
-    throw new Error(promptError);
-  }
-
   // The parent component now handles logging included entries.
 
   try {
@@ -212,7 +202,7 @@ export const generateText = async (
       headers,
       body: JSON.stringify({
         ...body,
-        ...generationSettings,
+        ...filterGenerationSettings(generationSettings),
         stream: true,
         model,
       }),
@@ -224,8 +214,6 @@ export const generateText = async (
 
     const generatedText = await streamResponse(response, onData, signal);
     return {
-      promptForHistory,
-      options,
       text: generatedText,
     };
   } catch (err) {
@@ -235,7 +223,7 @@ export const generateText = async (
 };
 
 export const continueGeneration = async (
-  cardToContinue,
+  body,
   apiKey,
   llmEndpoint,
   model,
@@ -243,21 +231,6 @@ export const continueGeneration = async (
   onData,
   signal
 ) => {
-  const continueOptions = {
-    ...cardToContinue.options,
-    mode: "write",
-    cardContent: cardToContinue.text,
-  };
-  const {
-    body,
-    bibleEntriesForLog,
-    error: promptError,
-  } = buildPrompt(continueOptions);
-
-  if (promptError) {
-    throw new Error(promptError);
-  }
-
   // The parent component now handles logging included entries.
 
   try {
@@ -269,7 +242,7 @@ export const continueGeneration = async (
       headers,
       body: JSON.stringify({
         ...body,
-        ...generationSettings,
+        ...filterGenerationSettings(generationSettings),
         stream: true,
         model,
       }),
@@ -281,7 +254,6 @@ export const continueGeneration = async (
 
     const generatedText = await streamResponse(response, onData, signal);
     return {
-      options: continueOptions,
       text: generatedText,
     };
   } catch (err) {
@@ -291,7 +263,7 @@ export const continueGeneration = async (
 };
 
 export const regenerate = async (
-  cardToRegenerate,
+  body,
   apiKey,
   llmEndpoint,
   model,
@@ -299,14 +271,6 @@ export const regenerate = async (
   onData,
   signal
 ) => {
-  const { body, error: promptError } = buildPrompt(cardToRegenerate.options);
-
-  if (promptError) {
-    throw new Error(promptError);
-  }
-
-  console.log("Messages for network request:", body.messages);
-
   try {
     const headers = { "Content-Type": "application/json" };
     if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
@@ -316,7 +280,7 @@ export const regenerate = async (
       headers,
       body: JSON.stringify({
         ...body,
-        ...generationSettings,
+        ...filterGenerationSettings(generationSettings),
         stream: true,
         model,
       }),
@@ -328,7 +292,6 @@ export const regenerate = async (
 
     const generatedText = await streamResponse(response, onData, signal);
     return {
-      options: cardToRegenerate.options,
       text: generatedText,
     };
   } catch (err) {

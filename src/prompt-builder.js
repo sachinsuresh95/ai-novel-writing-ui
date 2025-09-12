@@ -1,24 +1,25 @@
 import { PromptContextHelpers } from "./hooks/usePromptContextManager";
+import { extractCustomInstructions } from "./context-extractor"; // Import for custom instructions
 
 function getBibleSubPrompt(bibleEntry) {
   const bibleType = bibleEntry?.type;
   const bibleTitle = bibleEntry?.title || "";
   if (!bibleType || !bibleTitle) return "";
   const basePrompt =
-    "You are crafting a Story Bible entry. Keep the description concise and focused on the most critical information. ";
+    "Keep the description concise and focused on the most critical information. ";
 
   switch (bibleType) {
     case "Character":
       return (
         basePrompt +
-        `Flesh out the character's core personality, primary motivation, physical appearance, and key relationships in a few short sentences. Character: ${bibleTitle}`
+        `Flesh out the character's core personality, primary motivation, physical appearance, and key relationships. Character: ${bibleTitle}`
       );
     case "Plot Summary":
-      return `You are writing a plot summary. Outline the main arcs, key turning points, and final resolution in a brief, easy-to-read format. Do not exceed a few paragraphs.`;
+      return `Outline the main arcs, key turning points, and final resolution in a brief format. Do not exceed a few paragraphs.`;
     case "Setting":
       return (
         basePrompt +
-        `Describe the aumbience and key features of the location ${bibleTitle}. Focus on sensory details that are most relevant to the story.`
+        `Describe the ambience and key features of the location ${bibleTitle}. Focus on sensory details relevant to the story.`
       );
     case "Lore":
       return (
@@ -26,11 +27,11 @@ function getBibleSubPrompt(bibleEntry) {
         `Detail a core aspect of your world's history, mythology, or magic system. Be specific and brief. Lore topic: ${bibleTitle}`
       );
     case "Chapter Outline":
-      return `You are creating a chapter outline. List the key scenes and plot points in a simple, hierarchical format. Keep it concise and focused. Chapter title: ${bibleTitle}`;
+      return `List the key scenes and plot points in a simple paragraph. Keep it concise. Chapter title: ${bibleTitle}`;
     case "Instructions":
       return ""; // No AI prompt for this type
     default:
-      return `You are working on a Story Bible entry. Write content that is concise and consistent with the entry's purpose. Entry title: ${bibleTitle} Entry type: ${bibleType}`;
+      return `Write content that is concise and consistent with the entry's purpose. Entry title: ${bibleTitle} Entry type: ${bibleType}`;
   }
 }
 // Pass truncated context directly from the new hook
@@ -44,106 +45,133 @@ function buildAdvancedPrompt({
   truncatedPrecedingText,
   truncatedFollowingText,
   selectedText,
+  bibleEntries, // Add bibleEntries for custom instructions
 }) {
-  // 1. System Prompt & User Instruction
-  const systemPrompt = `You are a world-class writing partner, an expert in narrative structure, character development, and prose. Your goal is to assist a writer by generating content that is stylistically and tonally consistent with their work. You will be given context from their "Story Bible" and the surrounding text. Your response should be focused, directly addressing the user's request without preamble.`;
-  const userInstruction = instruction
-    ? `\nUSER INSTRUCTION: "${instruction}"`
-    : "";
+  // 1. System Prompt with Custom Instructions
+  let systemPrompt = `You are a world-class writing partner, an expert in narrative structure, character development, and prose. Your goal is to assist a writer by generating content that is stylistically and tonally consistent with their work. You will be given context from their "Story Bible" and the surrounding text. Your response should be focused, directly addressing the user's request without preamble.`;
 
-  // 2. Message Construction
-  const messages = [];
-  if (truncatedBibleContext) {
-    messages.push({
-      role: "user",
-      content: `CONTEXT: STORY BIBLE\n---\n${truncatedBibleContext}`,
-    });
-    messages.push({ role: "assistant", content: "Bible context noted." });
+  // Extract and append custom instructions
+  const customInstructions = bibleEntries
+    ? extractCustomInstructions(bibleEntries)
+    : "";
+  if (customInstructions) {
+    systemPrompt += `\n\n[CUSTOM_INSTRUCTIONS]\n${customInstructions}\n[/CUSTOM_INSTRUCTIONS]`;
   }
 
+  // 2. Prepare sections
+  const { truncateTokens, textToTokens, tokensToText } = PromptContextHelpers;
   const effectivePrecedingText =
     mode === "write"
       ? truncatedPrecedingText + cardContent
       : truncatedPrecedingText;
 
+  // Truncate sections to manage tokens (preserve end for preceding)
+  const maxSectionTokens = 1500; // Per section limit
+  let bibleSection =
+    truncatedBibleContext ||
+    "[STORY_BIBLE]\n(No relevant bible context)\n[/STORY_BIBLE]";
+  let precedingSection = effectivePrecedingText || "";
+  let followingSection = truncatedFollowingText || "";
+  let selectedSection = selectedText || "";
+
+  // Truncate preceding (keep last part for continuation)
+  if (precedingSection) {
+    const precedingTokens = textToTokens(precedingSection);
+    if (precedingTokens.length > maxSectionTokens) {
+      const keepTokens = truncateTokens(
+        precedingTokens,
+        maxSectionTokens,
+        "end"
+      );
+      precedingSection = tokensToText(keepTokens);
+    }
+  }
+
+  // Similar truncation for others if needed
+  if (followingSection) {
+    const followingTokens = textToTokens(followingSection);
+    if (followingTokens.length > maxSectionTokens) {
+      const keepTokens = truncateTokens(
+        followingTokens,
+        maxSectionTokens,
+        "start"
+      );
+      followingSection = tokensToText(keepTokens);
+    }
+  }
+
+  if (selectedSection) {
+    const selectedTokens = textToTokens(selectedSection);
+    if (selectedTokens.length > maxSectionTokens) {
+      const keepTokens = truncateTokens(
+        selectedTokens,
+        maxSectionTokens,
+        "full"
+      );
+      selectedSection = tokensToText(keepTokens);
+    }
+  }
+
+  const bibleSectionContent = `
+
+${bibleSection}
+
+[PRECEDING_TEXT]
+${precedingSection}
+[CONTINUE_FROM_HERE]
+
+[FOLLOWING_TEXT] (for stylistic reference only - do not continue into this)
+${followingSection}
+[RESUME_HERE]
+
+[USER_INSTRUCTIONS]
+${instruction || "No specific user instructions provided."}
+[/USER_INSTRUCTIONS]`;
+
   const isOutline = activeSidebarTab === "outline";
+  let taskSection = "";
 
   if (isOutline) {
     // --- OUTLINE/MANUSCRIPT PROMPTS ---
-    if (mode !== "write") {
-      if (effectivePrecedingText) {
-        messages.push({
-          role: "user",
-          content: `CONTEXT: PRECEDING TEXT\n---\n...${effectivePrecedingText}`,
-        });
-        messages.push({ role: "assistant", content: "Preceding text noted." });
-      }
-      if (truncatedFollowingText) {
-        messages.push({
-          role: "user",
-          content: `CONTEXT: FOLLOWING TEXT\n---\n${truncatedFollowingText}...`,
-        });
-        messages.push({ role: "assistant", content: "Following text noted." });
-      }
-    }
-
     switch (mode) {
       case "write":
-        messages.push({
-          role: "user",
-          content: `TASK: Continue writing exactly from where the text ends. Do not repeat any of the provided text. Match the existing style, tone, and voice. If there is no text to continue, assume you're starting a new chapter. ${userInstruction}\n\nHere is the text to continue from:\n---\n...${effectivePrecedingText}`,
-        });
+        taskSection = `
+[TASK: WRITE MODE]
+Write descriptive prose by expanding on the given chapter outline. Continue the given [PRECEDING_TEXT] seamlessly at [CONTINUE_FROM)HERE]. Do not repeat any provided text. Match the existing style, tone, and voice from [STORY_BIBLE] and surrounding text. If no text to continue, start a new chapter.
+`;
         break;
       case "rewrite":
         if (!selectedText) return { error: "Select text to rewrite." };
-        messages.push({
-          role: "user",
-          content: `TASK: Rewrite the following selected text. ${userInstruction}\n\nSELECTED TEXT:\n---\n${selectedText}`,
-        });
+        taskSection = `
+[SELECTED_TEXT]
+${selectedSection}
+[/SELECTED_TEXT]
+
+[TASK: REWRITE MODE]
+Rewrite only the [SELECTED_TEXT], keeping it consistent with [STORY_BIBLE] and surrounding style. Do not advance the plot beyond the selection.
+`;
         break;
       case "describe":
         if (!selectedText) return { error: "Select text to describe." };
-        messages.push({
-          role: "user",
-          content: `TASK: Expand upon the following selected text, adding rich sensory details and description. Do not advance the plot. ${userInstruction}\n\nSELECTED TEXT:\n---\n${selectedText}`,
-        });
+        taskSection = `
+[SELECTED_TEXT]
+${selectedSection}
+[/SELECTED_TEXT]
+
+[TASK: DESCRIBE MODE]
+Expand upon the [SELECTED_TEXT] by adding rich sensory details and description. Do not advance the plot. Stay consistent with [STORY_BIBLE].
+`;
         break;
       case "brainstorm":
-        messages.push({
-          role: "user",
-          content: `TASK: Brainstorm a list of creative ideas for what could happen next, based on the story so far. ${userInstruction}. Respond like a novel writing assistant, with engaging suggestions and ideas.`,
-        });
+        taskSection = `
+[TASK: BRAINSTORM MODE]
+Brainstorm a list of creative ideas for what could happen next, based on [STORY_BIBLE] and [PRECEDING_TEXT]. Respond as a novel writing assistant with engaging suggestions.
+`;
         break;
       default:
         return { error: "Invalid mode." };
     }
   } else {
-    // --- BIBLE PROMPTS ---
-    if (!bible) return { error: "No active bible entry." };
-
-    if (mode !== "write") {
-      if (effectivePrecedingText) {
-        messages.push({
-          role: "user",
-          content: `CONTEXT: PRECEDING TEXT IN ENTRY\n---\n...${effectivePrecedingText}`,
-        });
-        messages.push({
-          role: "assistant",
-          content: "Preceding text noted.",
-        });
-      }
-      if (truncatedFollowingText) {
-        messages.push({
-          role: "user",
-          content: `CONTEXT: FOLLOWING TEXT IN ENTRY\n---\n${truncatedFollowingText}...`,
-        });
-        messages.push({
-          role: "assistant",
-          content: "Following text noted.",
-        });
-      }
-    }
-
     // --- BIBLE PROMPTS ---
     if (!bible) return { error: "No active bible entry." };
     if (bible.type === "Instructions")
@@ -153,10 +181,10 @@ function buildAdvancedPrompt({
 
     switch (mode) {
       case "write":
-        messages.push({
-          role: "user",
-          content: `TASK: ${subPrompt} Continue writing exactly from where the text ends. Do not repeat any of the provided text. Match the existing style. ${userInstruction}\n\nHere is the text to continue from:\n---\n...${effectivePrecedingText}`,
-        });
+        taskSection = `
+[TASK: WRITE MODE - BIBLE ENTRY]
+${subPrompt} Continue writing for the "${bible.title}" entry seamlessly from [PRECEDING_TEXT] at [CONTINUE_FROM_HERE]. Do not repeat provided text. Match the existing style from [STORY_BIBLE].
+`;
         break;
       case "rewrite":
         const textToRewrite = selectedText || bible.content;
@@ -164,27 +192,35 @@ function buildAdvancedPrompt({
         const rewriteTarget = selectedText
           ? "the selected text"
           : "the entire entry";
-        messages.push({
-          role: "user",
-          content: `TASK: ${subPrompt} Rewrite ${rewriteTarget} for the Story Bible entry titled "${bible.title}". ${userInstruction}\n\nTEXT TO REWRITE:\n---\n${textToRewrite}`,
-        });
+        taskSection = `
+[SELECTED_TEXT]
+${textToRewrite}
+[/SELECTED_TEXT]
+
+[TASK: REWRITE MODE - BIBLE ENTRY]
+${subPrompt} Rewrite ${rewriteTarget} for the Story Bible entry titled "${bible.title}". Keep consistent with overall [STORY_BIBLE].
+`;
         break;
       case "brainstorm":
-        messages.push({
-          role: "user",
-          content: `TASK: ${subPrompt} Brainstorm ideas for the Story Bible entry titled "${
-            bible.title
-          }". Base your ideas on the current content if it exists. ${userInstruction}\n\nCURRENT CONTENT:\n---\n${
-            bible.content || "(This entry is currently empty)"
-          }`,
-        });
+        taskSection = `
+[CURRENT_CONTENT]
+${bible.content || "(This entry is currently empty)"}
+[/CURRENT_CONTENT]
+
+[TASK: BRAINSTORM MODE - BIBLE ENTRY]
+${subPrompt} Brainstorm ideas for the Story Bible entry titled "${
+          bible.title
+        }". Base ideas on [CURRENT_CONTENT] and overall [STORY_BIBLE].
+`;
         break;
       default:
         return { error: "Invalid mode for bible entry." };
     }
   }
 
-  return { systemPrompt, messages };
+  const userContent = bibleSectionContent + "\n\n" + taskSection;
+
+  return { systemPrompt, userContent };
 }
 
 export function buildMemoryUpdatePrompt({
@@ -216,12 +252,14 @@ export function buildMemoryUpdatePrompt({
   );
   const truncatedContent = tokensToText(truncatedChapterTokens);
 
-  const userPrompt = `${userInstruction}
+  const userPrompt = `[CHAPTER_SUMMARY_TASK]
+${userInstruction}
 
-CHAPTER CONTENT:
+[CHAPTER_CONTENT]
 ---
 ${truncatedContent}
----`;
+---
+[/CHAPTER_CONTENT]`;
 
   const messages = [{ role: "user", content: userPrompt }];
 
@@ -237,23 +275,24 @@ ${truncatedContent}
 // --- Main Export ---
 // This function remains the public API, but now takes the processed context.
 export const buildPrompt = (options) => {
-  const { maxTokens, generationSettings, ...rest } = options;
+  const { maxTokens, ...rest } = options;
   const result = buildAdvancedPrompt(rest);
 
   if (result.error) return { error: result.error };
 
-  const { systemPrompt, messages } = result;
+  const { systemPrompt, userContent } = result;
 
   const body = {
-    messages: [{ role: "system", content: systemPrompt }, ...messages],
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userContent },
+    ],
     max_tokens: Number(maxTokens),
-    ...generationSettings,
   };
 
   const promptForHistory = body.messages
     .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
     .join("\n\n");
 
-  // Note: bibleEntriesForLog is removed as the parent component now manages this.
   return { body, promptForHistory };
 };

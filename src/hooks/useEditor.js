@@ -5,8 +5,8 @@ export const useEditor = ({
   setDocuments,
   activeDocumentId,
   bibleEntries,
-  setBibleEntries,
   activeBibleEntryId,
+  updateBibleEntry,
   activeSidebarTab,
 }) => {
   const editorRef = useRef(null);
@@ -51,11 +51,10 @@ export const useEditor = ({
         )
       );
     } else if (activeSidebarTab === "bible" && activeBibleEntryId) {
-      setBibleEntries((entries) =>
-        entries.map((e) =>
-          e.id === activeBibleEntryId ? { ...e, content: newText } : e
-        )
-      );
+      const entry = bibleEntries.find((e) => e.id === activeBibleEntryId);
+      if (entry) {
+        updateBibleEntry({ ...entry, content: newText });
+      }
     }
     setTimeout(() => {
       const newCursorPos = start + textToInsert.length;
@@ -73,11 +72,10 @@ export const useEditor = ({
         )
       );
     } else if (activeSidebarTab === "bible" && activeBibleEntryId) {
-      setBibleEntries((entries) =>
-        entries.map((e) =>
-          e.id === activeBibleEntryId ? { ...e, content: newContent } : e
-        )
-      );
+      const entry = bibleEntries.find((e) => e.id === activeBibleEntryId);
+      if (entry) {
+        updateBibleEntry({ ...entry, content: newContent });
+      }
     }
   };
 

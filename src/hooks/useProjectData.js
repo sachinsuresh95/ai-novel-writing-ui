@@ -1,7 +1,16 @@
-import { useState, useCallback } from "react";
-import * as storage from "../storage";
+import { useState, useCallback, useEffect } from "react";
+import { EMBEDDING_TYPES } from "../constants";
+import storage from "../storage";
+import vectorizer from "../services/vectorizer";
 
 export const useProjectData = (activeProjectId, generateInitialMemory) => {
+  const {
+    getAllEmbeddingKeys,
+    saveEmbedding,
+    getProject,
+    saveProject,
+    deleteEmbedding,
+  } = storage;
   const [documents, setDocuments] = useState([]);
   const [activeDocumentId, setActiveDocumentId] = useState(null);
   const [bibleEntries, setBibleEntries] = useState([]);
@@ -21,7 +30,7 @@ export const useProjectData = (activeProjectId, generateInitialMemory) => {
       setInitMessage("Loading project...");
 
       try {
-        const projectData = await storage.getProject(projectId);
+        const projectData = await getProject(projectId);
         if (!projectData) {
           setError(`Could not load project with ID: ${projectId}`);
           setIsInitializing(false);
@@ -49,7 +58,7 @@ export const useProjectData = (activeProjectId, generateInitialMemory) => {
               id: Date.now() + 99,
               title: "Memory",
               type: "Memory",
-              content: "# Memory\n\nA summary of events as they happen.",
+              content: "",
             },
           ];
 
@@ -57,7 +66,7 @@ export const useProjectData = (activeProjectId, generateInitialMemory) => {
           setBibleEntries(finalBibleEntries);
           setActiveDocumentId(projectData.activeDocumentId);
           setActiveBibleEntryId(projectData.activeBibleEntryId);
-          await storage.saveProject({
+          await saveProject({
             ...projectData,
             bibleEntries: finalBibleEntries,
           });
@@ -69,7 +78,91 @@ export const useProjectData = (activeProjectId, generateInitialMemory) => {
         setIsInitializing(false);
       }
     },
-    [generateInitialMemory]
+    [generateInitialMemory, saveProject, getProject]
+  );
+
+  useEffect(() => {
+    if (activeProjectId && bibleEntries?.length > 0) {
+      const syncEmbeddings = async () => {
+        const allBibleEntryIds = bibleEntries.map((e) => e.id);
+        const embeddingKeys = await getAllEmbeddingKeys();
+        const missingIds = allBibleEntryIds.filter(
+          (id) => !embeddingKeys.includes(id)
+        );
+
+        if (missingIds.length > 0) {
+          console.log(
+            `Generating embeddings for ${missingIds.length} missing entries...`
+          );
+          for (const id of missingIds) {
+            const entry = bibleEntries.find((e) => e.id === id);
+            if (entry && EMBEDDING_TYPES.has(entry.type)) {
+              const embedding = await vectorizer.generateEmbedding(
+                entry.content
+              );
+              await saveEmbedding(entry.id, embedding);
+            } else if (entry) {
+              console.log(
+                `Skipping embedding for non-target type: ${entry.type}`
+              );
+            }
+          }
+        }
+      };
+
+      syncEmbeddings();
+    }
+  }, [activeProjectId, bibleEntries, getAllEmbeddingKeys, saveEmbedding]);
+
+  const addBibleEntry = useCallback(
+    async (newEntry) => {
+      const entryWithId = { ...newEntry, id: Date.now() };
+      setBibleEntries((prev) => [...prev, entryWithId]);
+
+      if (EMBEDDING_TYPES.has(entryWithId.type)) {
+        const embedding = await vectorizer.generateEmbedding(
+          entryWithId.content
+        );
+        await saveEmbedding(entryWithId.id, embedding);
+      } else {
+        console.log(
+          `Skipping embedding for new entry of non-target type: ${entryWithId.type}`
+        );
+      }
+
+      return entryWithId;
+    },
+    [saveEmbedding]
+  );
+
+  const updateBibleEntry = useCallback(
+    async (updatedEntry) => {
+      setBibleEntries((prev) =>
+        prev.map((entry) =>
+          entry.id === updatedEntry.id ? updatedEntry : entry
+        )
+      );
+
+      if (EMBEDDING_TYPES.has(updatedEntry.type)) {
+        const newEmbedding = await vectorizer.generateEmbedding(
+          updatedEntry.content
+        );
+        await saveEmbedding(updatedEntry.id, newEmbedding);
+      } else {
+        console.log(
+          `Skipping embedding update for non-target type: ${updatedEntry.type}`
+        );
+      }
+    },
+    [saveEmbedding]
+  );
+
+  const deleteBibleEntry = useCallback(
+    async (entryId) => {
+      setBibleEntries((prev) => prev.filter((entry) => entry.id !== entryId));
+      await deleteEmbedding(entryId);
+    },
+    [deleteEmbedding]
   );
 
   return {
@@ -78,7 +171,6 @@ export const useProjectData = (activeProjectId, generateInitialMemory) => {
     activeDocumentId,
     setActiveDocumentId,
     bibleEntries,
-    setBibleEntries,
     activeBibleEntryId,
     setActiveBibleEntryId,
     isInitializing,
@@ -86,5 +178,8 @@ export const useProjectData = (activeProjectId, generateInitialMemory) => {
     error,
     setError,
     loadProjectData,
+    addBibleEntry,
+    updateBibleEntry,
+    deleteBibleEntry,
   };
 };

@@ -1,10 +1,4 @@
-import React, {
-  useState,
-  useRef,
-  useCallback,
-  useEffect,
-  useMemo,
-} from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import AIToolbar from "./AIToolbar";
 import Editor from "./Editor";
 import GenerationPanel from "./GenerationPanel";
@@ -15,27 +9,20 @@ import {
   regenerate as regenerateAPI,
 } from "../services/AIGeneration";
 import { buildPrompt } from "../prompt-builder";
+import { computeGenerationContext } from "../utils/contextUtils";
 import { RefreshCw } from "lucide-react";
-import { usePromptContextManager } from "../hooks/usePromptContextManager";
-import {
-  extractBibleContext,
-  extractSelectiveBibleContext,
-  extractStoryContext,
-} from "../context-extractor";
-import { PromptContextHelpers } from "../hooks/usePromptContextManager";
 
 const MainContent = ({
   documents,
   setDocuments,
   activeDocumentId,
   bibleEntries,
-  setBibleEntries,
   activeBibleEntryId,
+  updateBibleEntry,
   activeSidebarTab,
   isInitializing,
   isGenerating,
   setIsGenerating,
-  generationMessage,
   setGenerationMessage,
   error,
   setError,
@@ -65,8 +52,8 @@ const MainContent = ({
     setDocuments,
     activeDocumentId,
     bibleEntries,
-    setBibleEntries,
     activeBibleEntryId,
+    updateBibleEntry,
     activeSidebarTab,
   });
 
@@ -74,70 +61,6 @@ const MainContent = ({
   const [customInstruction, setCustomInstruction] = useState("");
   const [historyCards, setHistoryCards] = useState([]);
   const aiToolsRef = useRef(null);
-
-  // --- Context Management & Token Budgeting ---
-  const { preceding, following, selected } = useMemo(
-    () => extractStoryContext(activeItem, selection),
-    [activeItem, selection]
-  );
-
-  const { bibleContext, bibleEntriesForLog } = useMemo(() => {
-    const isOutline = activeSidebarTab === "outline";
-    const doc = isOutline
-      ? documents?.find((d) => d.id === activeDocumentId)
-      : null;
-    const storyTextForAnalysis = `${preceding?.slice(
-      -2000
-    )} ${selected} ${following?.slice(0, 1000)}`;
-
-    const result = isOutline
-      ? extractSelectiveBibleContext(
-          bibleEntries,
-          storyTextForAnalysis,
-          doc?.title || ""
-        )
-      : extractBibleContext(bibleEntries, activeBibleEntryId);
-
-    return {
-      bibleContext: result.contextString || "",
-      bibleEntriesForLog: result.includedEntries || [],
-    };
-  }, [
-    activeSidebarTab,
-    documents,
-    activeDocumentId,
-    preceding,
-    selected,
-    following,
-    bibleEntries,
-    activeBibleEntryId,
-  ]);
-
-  const variableTokenBudget = useMemo(() => {
-    const { textToTokens } = PromptContextHelpers;
-    const contextWindowSize = modelContextWindow || 8192;
-    const generationTokens = Number(maxTokens) || 1024;
-    const promptTokenBudget = contextWindowSize - generationTokens;
-    const systemPrompt = `You are a world-class writing partner...`; // This can be a constant
-    let fixedTokenCount = 0;
-    fixedTokenCount += textToTokens(systemPrompt).length;
-    fixedTokenCount += textToTokens(customInstruction).length;
-    fixedTokenCount += textToTokens(selected).length;
-    fixedTokenCount += 250; // Overhead
-    return Math.max(0, promptTokenBudget - fixedTokenCount);
-  }, [modelContextWindow, maxTokens, customInstruction, selected]);
-
-  const {
-    truncatedBibleContext,
-    truncatedPrecedingText,
-    truncatedFollowingText,
-  } = usePromptContextManager({
-    bibleContext,
-    precedingText: preceding,
-    followingText: following,
-    promptTokenBudget: variableTokenBudget,
-  });
-  // --- End of Context Management ---
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -174,7 +97,51 @@ const MainContent = ({
       setGenerationMessage("Continuing generation...");
       setIsGenerating(true);
 
-      const existingText = cardToContinue.text;
+      // Compute fresh context for continuation
+      setGenerationMessage("Preparing context...");
+      const generationContext = await computeGenerationContext({
+        activeItem,
+        selection,
+        activeSidebarTab,
+        documents,
+        activeDocumentId,
+        bibleEntries,
+        activeBibleEntryId,
+        customInstruction,
+        selectedText,
+        modelContextWindow,
+        maxTokens,
+      });
+
+      const {
+        truncatedBibleContext,
+        truncatedPrecedingText,
+        truncatedFollowingText,
+      } = generationContext;
+
+      const updatedOptions = {
+        ...cardToContinue.options,
+        truncatedBibleContext,
+        truncatedPrecedingText,
+        truncatedFollowingText,
+        selectedText,
+        cardContent: cardToContinue.text,
+      };
+
+      const { body, error: promptError } = buildPrompt(updatedOptions);
+      if (promptError) {
+        setError(promptError);
+        setIsGenerating(false);
+        return;
+      }
+
+      setHistoryCards((cards) =>
+        cards.map((card) =>
+          card.id === cardToContinue.id
+            ? { ...card, options: updatedOptions }
+            : card
+        )
+      );
 
       try {
         abortControllerRef.current = new AbortController();
@@ -189,7 +156,7 @@ const MainContent = ({
         };
 
         await continueGenerationAPI(
-          cardToContinue,
+          body,
           apiKey,
           llmEndpoint,
           model,
@@ -211,6 +178,18 @@ const MainContent = ({
       setError,
       setGenerationMessage,
       setIsGenerating,
+      computeGenerationContext,
+      selectedText,
+      activeItem,
+      selection,
+      activeSidebarTab,
+      documents,
+      activeDocumentId,
+      bibleEntries,
+      activeBibleEntryId,
+      customInstruction,
+      modelContextWindow,
+      maxTokens,
     ]
   );
 
@@ -233,9 +212,53 @@ const MainContent = ({
       setGenerationMessage("Rerunning generation...");
       setIsGenerating(true);
 
+      // Compute fresh context for regeneration
+      setGenerationMessage("Preparing context...");
+      const generationContext = await computeGenerationContext({
+        activeItem,
+        selection,
+        activeSidebarTab,
+        documents,
+        activeDocumentId,
+        bibleEntries,
+        activeBibleEntryId,
+        customInstruction,
+        selectedText,
+        modelContextWindow,
+        maxTokens,
+      });
+
+      const {
+        truncatedBibleContext,
+        truncatedPrecedingText,
+        truncatedFollowingText,
+      } = generationContext;
+
+      const updatedOptions = {
+        ...cardToRegenerate.options,
+        mode: cardToRegenerate.mode,
+        instruction: cardToRegenerate.options?.instruction || "",
+        activeSidebarTab,
+        truncatedBibleContext,
+        truncatedPrecedingText,
+        truncatedFollowingText,
+        selectedText,
+        maxTokens,
+        generationSettings,
+      };
+      const { body, error: promptError } = buildPrompt(updatedOptions);
+
+      if (promptError) {
+        setError(promptError);
+        setIsGenerating(false);
+        return;
+      }
+
       setHistoryCards((cards) =>
         cards.map((card) =>
-          card.id === cardToRegenerate.id ? { ...card, text: "" } : card
+          card.id === cardToRegenerate.id
+            ? { ...card, text: "", options: updatedOptions }
+            : card
         )
       );
 
@@ -252,7 +275,7 @@ const MainContent = ({
         };
 
         await regenerateAPI(
-          cardToRegenerate,
+          body,
           apiKey,
           llmEndpoint,
           model,
@@ -274,6 +297,19 @@ const MainContent = ({
       setError,
       setGenerationMessage,
       setIsGenerating,
+      activeSidebarTab,
+      computeGenerationContext,
+      selectedText,
+      maxTokens,
+      generationSettings,
+      activeItem,
+      selection,
+      documents,
+      activeDocumentId,
+      bibleEntries,
+      activeBibleEntryId,
+      customInstruction,
+      modelContextWindow,
     ]
   );
 
@@ -294,6 +330,28 @@ const MainContent = ({
           ? bibleEntries?.find((b) => b.id === activeBibleEntryId)
           : null;
 
+      // Compute fresh context for generation
+      setGenerationMessage("Preparing context...");
+      const generationContext = await computeGenerationContext({
+        activeItem,
+        selection,
+        activeSidebarTab,
+        documents,
+        activeDocumentId,
+        bibleEntries,
+        activeBibleEntryId,
+        customInstruction: instruction,
+        selectedText,
+        modelContextWindow,
+        maxTokens,
+      });
+
+      const {
+        truncatedBibleContext,
+        truncatedPrecedingText,
+        truncatedFollowingText,
+      } = generationContext;
+
       const promptOptions = {
         mode,
         instruction,
@@ -303,31 +361,22 @@ const MainContent = ({
         truncatedBibleContext,
         truncatedPrecedingText,
         truncatedFollowingText,
-        selectedText: selected,
+        selectedText,
         maxTokens,
         generationSettings,
       };
 
-      const { promptForHistory, error: promptError } =
-        buildPrompt(promptOptions);
+      const {
+        body,
+        promptForHistory,
+        error: promptError,
+      } = buildPrompt(promptOptions);
 
       if (promptError) {
         setError(promptError);
         setIsGenerating(false);
         return;
       }
-
-      console.log(
-        "Bible entries included in context:",
-        bibleEntriesForLog.map((e) => e.title)
-      );
-
-      console.log({
-        truncatedBibleContext,
-        truncatedPrecedingText,
-        truncatedFollowingText,
-        selected,
-      });
 
       const newCardId = Date.now();
       setHistoryCards((prev) => [
@@ -354,7 +403,7 @@ const MainContent = ({
         };
 
         await generateTextAPI(
-          promptOptions,
+          body,
           apiKey,
           llmEndpoint,
           model,
@@ -381,11 +430,14 @@ const MainContent = ({
       setIsSettingsOpen,
       setIsGenerating,
       setGenerationMessage,
-      bibleEntriesForLog, // Dependency for logging
-      truncatedBibleContext,
-      truncatedPrecedingText,
-      truncatedFollowingText,
-      selected,
+      selectedText,
+      computeGenerationContext,
+      activeItem,
+      selection,
+      documents,
+      activeDocumentId,
+      customInstruction,
+      modelContextWindow,
     ]
   );
 
