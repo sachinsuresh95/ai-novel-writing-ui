@@ -126,6 +126,7 @@ const MainContent = ({
         truncatedFollowingText,
         selectedText,
         cardContent: cardToContinue.text,
+        bibleEntries,
       };
 
       const { body, error: promptError } = buildPrompt(updatedOptions);
@@ -245,7 +246,9 @@ const MainContent = ({
         selectedText,
         maxTokens,
         generationSettings,
+        bibleEntries,
       };
+
       const { body, error: promptError } = buildPrompt(updatedOptions);
 
       if (promptError) {
@@ -364,6 +367,7 @@ const MainContent = ({
         selectedText,
         maxTokens,
         generationSettings,
+        bibleEntries,
       };
 
       const {

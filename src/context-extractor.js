@@ -24,7 +24,7 @@ export function extractBibleContext(bibleEntries, excludeId = null) {
     included.push(entry);
   }
 
-  let out = "[STORY_BIBLE]\n";
+  let out = "## CONTEXT:\n";
   if (Object.keys(grouped).length === 0) {
     out += "(No relevant bible context)\n";
   } else {
@@ -40,14 +40,14 @@ export function extractBibleContext(bibleEntries, excludeId = null) {
 
     for (const type of orderedTypes) {
       if (!grouped[type]) continue;
-      out += `<${type}>\n`;
+      out += `### ${type}\n`;
       for (const entry of grouped[type]) {
-        out += `- ${entry.title}: ${entry.content}\n`;
+        out += `#### ${entry.title}: ${entry.content}\n`;
       }
-      out += `</${type}>\n`;
+      out += `\n\n`;
     }
   }
-  out += "[/STORY_BIBLE]";
+  out += "\n\n";
 
   return { contextString: out.trim(), includedEntries: included };
 }
@@ -148,13 +148,13 @@ export async function extractSelectiveBibleContext(
     grouped[entry.type].push(entry);
   }
 
-  let out = "[STORY_BIBLE]\n";
+  let out = "## CONTEXT:\n";
   if (Object.keys(grouped).length === 0 && !memoryContent) {
     out += "(No relevant bible context)\n";
   } else {
     // Memory first
     if (memoryContent) {
-      out += "<Memory>\n" + memoryContent + "\n</Memory>\n";
+      out += "### Story so far\n" + memoryContent + "\n\n";
     }
 
     // Other types in priority order
@@ -169,16 +169,16 @@ export async function extractSelectiveBibleContext(
 
     for (const type of orderedTypes) {
       if (!grouped[type]) continue;
-      out += `<${type}>\n`;
+      out += `### ${type}\n`;
       for (const entry of grouped[type]) {
-        out += `- ${entry.title}: ${entry.content}\n`;
+        out += `#### ${entry.title}: ${entry.content}\n\n`;
       }
-      out += `</${type}>\n`;
+      out += `\n\n`;
     }
   }
-  out += "[/STORY_BIBLE]";
+  out += "\n\n";
 
-  const customInstructions = extractCustomInstructions(bibleEntries);
+  const customInstructions = "";
 
   return {
     contextString: out.trim(),

@@ -12,7 +12,7 @@ function getBibleSubPrompt(bibleEntry) {
     case "Character":
       return (
         basePrompt +
-        `Flesh out the character's core personality, primary motivation, physical appearance, and key relationships. Character: ${bibleTitle}`
+        `Flesh out the character's core personality, primary motivation, physical appearance, and key relationships. Character: ${bibleTitle}.`
       );
     case "Plot Summary":
       return `Outline the main arcs, key turning points, and final resolution in a brief format. Do not exceed a few paragraphs.`;
@@ -24,14 +24,14 @@ function getBibleSubPrompt(bibleEntry) {
     case "Lore":
       return (
         basePrompt +
-        `Detail a core aspect of your world's history, mythology, or magic system. Be specific and brief. Lore topic: ${bibleTitle}`
+        `Detail a core aspect of your world's history, mythology, or magic system. Be specific and brief. Lore topic: ${bibleTitle}.`
       );
     case "Chapter Outline":
-      return `List the key scenes and plot points in a simple paragraph. Keep it concise. Chapter title: ${bibleTitle}`;
+      return `List the key scenes and plot points in a simple paragraph. Keep it concise. Chapter title: ${bibleTitle}.`;
     case "Instructions":
       return ""; // No AI prompt for this type
     default:
-      return `Write content that is concise and consistent with the entry's purpose. Entry title: ${bibleTitle} Entry type: ${bibleType}`;
+      return `Write content that is concise and consistent with the entry's purpose. Entry title: ${bibleTitle} Entry type: ${bibleType}.`;
   }
 }
 // Pass truncated context directly from the new hook
@@ -48,14 +48,14 @@ function buildAdvancedPrompt({
   bibleEntries, // Add bibleEntries for custom instructions
 }) {
   // 1. System Prompt with Custom Instructions
-  let systemPrompt = `You are a world-class writing partner, an expert in narrative structure, character development, and prose. Your goal is to assist a writer by generating content that is stylistically and tonally consistent with their work. You will be given context from their "Story Bible" and the surrounding text. Your response should be focused, directly addressing the user's request without preamble.`;
+  let systemPrompt = `You are a world-class writing partner, an expert in narrative structure, character development, and prose. Your goal is to assist a writer by generating content that is stylistically and tonally consistent with their work. You will be given context from their "Story Bible" and the surrounding text. Your response should be focused, directly addressing the user's request without preamble. If 'In progress generation' text is provided, continue seamlessly from it - do not start over.`;
 
   // Extract and append custom instructions
   const customInstructions = bibleEntries
     ? extractCustomInstructions(bibleEntries)
     : "";
   if (customInstructions) {
-    systemPrompt += `\n\n[CUSTOM_INSTRUCTIONS]\n${customInstructions}\n[/CUSTOM_INSTRUCTIONS]`;
+    systemPrompt += `\n\n## Custom Instructions:\n${customInstructions}\n\n`;
   }
 
   // 2. Prepare sections
@@ -68,8 +68,7 @@ function buildAdvancedPrompt({
   // Truncate sections to manage tokens (preserve end for preceding)
   const maxSectionTokens = 1500; // Per section limit
   let bibleSection =
-    truncatedBibleContext ||
-    "[STORY_BIBLE]\n(No relevant bible context)\n[/STORY_BIBLE]";
+    truncatedBibleContext || "## CONTEXT:\n(No relevant context)\n";
   let precedingSection = effectivePrecedingText || "";
   let followingSection = truncatedFollowingText || "";
   let selectedSection = selectedText || "";
@@ -116,17 +115,9 @@ function buildAdvancedPrompt({
 
 ${bibleSection}
 
-[PRECEDING_TEXT]
-${precedingSection}
-[CONTINUE_FROM_HERE]
-
-[FOLLOWING_TEXT] (for stylistic reference only - do not continue into this)
-${followingSection}
-[RESUME_HERE]
-
-[USER_INSTRUCTIONS]
+## User Instructions
 ${instruction || "No specific user instructions provided."}
-[/USER_INSTRUCTIONS]`;
+`;
 
   const isOutline = activeSidebarTab === "outline";
   let taskSection = "";
@@ -136,36 +127,59 @@ ${instruction || "No specific user instructions provided."}
     switch (mode) {
       case "write":
         taskSection = `
-[TASK: WRITE MODE]
-Write descriptive prose by expanding on the given chapter outline. Continue the given [PRECEDING_TEXT] seamlessly at [CONTINUE_FROM)HERE]. Do not repeat any provided text. Match the existing style, tone, and voice from [STORY_BIBLE] and surrounding text. If no text to continue, start a new chapter.
+## TASK:
+Expand the given chapter outline into descriptive narrative prose. Focus on organic conversations between the characters. Use extensive detailing. You have the creative freedom to invent new scenarios, use new details, and include new characters as needed. Do not repeat any provided text. Match the existing style, tone, and voice from context and preceding text. If there is no preceding text, assume it is the starting of the chapter.
+
+### Preceding Text
+${truncatedPrecedingText}
+
+${cardContent.length ? `### In Progress\n${cardContent}` : ""}
+
+Continue:
 `;
         break;
       case "rewrite":
-        if (!selectedText) return { error: "Select text to rewrite." };
+        if (!selectedSection) return { error: "Select text to rewrite." };
         taskSection = `
-[SELECTED_TEXT]
-${selectedSection}
-[/SELECTED_TEXT]
+## TASK:
+Rewrite only the provided selected text, keeping it consistent with context and preceding style. Do not advance the plot beyond the selection.
 
-[TASK: REWRITE MODE]
-Rewrite only the [SELECTED_TEXT], keeping it consistent with [STORY_BIBLE] and surrounding style. Do not advance the plot beyond the selection.
+### Selection
+${selectedSection}
+
+### Preceding Text
+${truncatedPrecedingText}
+
+${cardContent.length ? `### In Progress\n${cardContent}` : ""}
+
+Continue:
 `;
         break;
       case "describe":
-        if (!selectedText) return { error: "Select text to describe." };
+        if (!selectedSection) return { error: "Select text to describe." };
         taskSection = `
-[SELECTED_TEXT]
-${selectedSection}
-[/SELECTED_TEXT]
 
-[TASK: DESCRIBE MODE]
-Expand upon the [SELECTED_TEXT] by adding rich sensory details and description. Do not advance the plot. Stay consistent with [STORY_BIBLE].
+## TASK:
+Expand upon the selected text by adding rich sensory details and description. Do not advance the plot. Stay consistent with context.
+
+### Selection
+${selectedSection}
+
+### Preceding Text
+${truncatedPrecedingText}
+
+${cardContent.length ? `### In Progress\n${cardContent}` : ""}
+
+Continue:
 `;
         break;
       case "brainstorm":
         taskSection = `
-[TASK: BRAINSTORM MODE]
-Brainstorm a list of creative ideas for what could happen next, based on [STORY_BIBLE] and [PRECEDING_TEXT]. Respond as a novel writing assistant with engaging suggestions.
+## Preceeding Text
+${precedingSection}
+
+## TASK:
+Brainstorm a list of creative ideas for what could happen next, based on context and preceding text. Respond as a novel writing assistant with engaging suggestions.
 `;
         break;
       default:
@@ -182,35 +196,50 @@ Brainstorm a list of creative ideas for what could happen next, based on [STORY_
     switch (mode) {
       case "write":
         taskSection = `
-[TASK: WRITE MODE - BIBLE ENTRY]
-${subPrompt} Continue writing for the "${bible.title}" entry seamlessly from [PRECEDING_TEXT] at [CONTINUE_FROM_HERE]. Do not repeat provided text. Match the existing style from [STORY_BIBLE].
+## TASK:
+${subPrompt} Do not repeat provided text. Match the existing style from context.
+
+### Preceding Text
+${precedingSection || "(This entry is currently empty)"}
+
+${cardContent.length ? `### In Progress\n${cardContent}` : ""}
+
+Continue:
 `;
         break;
       case "rewrite":
-        const textToRewrite = selectedText || bible.content;
+        const textToRewrite = selectedSection || bible.content;
         if (!textToRewrite) return { error: "No content to rewrite." };
-        const rewriteTarget = selectedText
-          ? "the selected text"
+        const rewriteTarget = selectedSection
+          ? "only the selected text"
           : "the entire entry";
         taskSection = `
-[SELECTED_TEXT]
-${textToRewrite}
-[/SELECTED_TEXT]
 
-[TASK: REWRITE MODE - BIBLE ENTRY]
-${subPrompt} Rewrite ${rewriteTarget} for the Story Bible entry titled "${bible.title}". Keep consistent with overall [STORY_BIBLE].
+## TASK:
+${subPrompt} Rewrite ${rewriteTarget} for the Story Bible entry titled "${
+          bible.title
+        }". Keep consistent with overall context.
+
+### Selected Text
+${textToRewrite}
+
+### Preceding Text
+${truncatedPrecedingText || "(This entry is currently empty)"}
+
+${cardContent.length ? `### In Progress\n${cardContent}` : ""}
+
+Continue:
 `;
         break;
       case "brainstorm":
         taskSection = `
-[CURRENT_CONTENT]
-${bible.content || "(This entry is currently empty)"}
-[/CURRENT_CONTENT]
-
-[TASK: BRAINSTORM MODE - BIBLE ENTRY]
+## TASK:
 ${subPrompt} Brainstorm ideas for the Story Bible entry titled "${
           bible.title
-        }". Base ideas on [CURRENT_CONTENT] and overall [STORY_BIBLE].
+        }". Base ideas on current content and overall context.
+
+### Current Content
+${bible.content || "(This entry is currently empty)"}
 `;
         break;
       default:
@@ -252,14 +281,15 @@ export function buildMemoryUpdatePrompt({
   );
   const truncatedContent = tokensToText(truncatedChapterTokens);
 
-  const userPrompt = `[CHAPTER_SUMMARY_TASK]
+  const userPrompt = `## TASK: chapter summarization
+
 ${userInstruction}
 
-[CHAPTER_CONTENT]
+## CHAPTER CONTENT:
 ---
 ${truncatedContent}
 ---
-[/CHAPTER_CONTENT]`;
+`;
 
   const messages = [{ role: "user", content: userPrompt }];
 
